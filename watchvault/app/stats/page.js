@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useEntries } from '@/lib/store';
 import { completionRankings, computeStats } from '@/lib/stats';
-import { STATUS_LABEL } from '@/lib/categories';
+import { STATUS_LABEL, countLabel } from '@/lib/categories';
 
 const region = (code) => {
   try {
@@ -49,13 +49,13 @@ export default function StatsPage() {
   return (
     <>
       <header className="page-head">
-        <div>
+        <div className="head-text">
           <h1 className="h-page">Stats</h1>
           <p className="lede">
             {s.watchedCount.toLocaleString()} titles watched:{' '}
             {[...s.byCategory]
               .sort((a, b) => b.count - a.count)
-              .map((c) => `${c.count} ${c.label.toLowerCase()}`)
+              .map(countLabel)
               .join(', ')}
             .
           </p>

@@ -34,7 +34,7 @@ export default function ActivityPage() {
   return (
     <>
       <header className="page-head">
-        <div>
+        <div className="head-text">
           <h1 className="h-page">History</h1>
           <p className="muted">Everything you added and changed, newest first.</p>
         </div>

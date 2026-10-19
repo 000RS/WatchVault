@@ -60,7 +60,9 @@ export default function SearchPage() {
     return () => clearTimeout(t);
   }, [q, type, year]);
 
-  useEffect(() => viewMemory.set('search', { q, type, year, results }), [q, type, year, results]);
+  useEffect(() => {
+    viewMemory.set('search', { q, type, year, results });
+  }, [q, type, year, results]);
 
   const years = Array.from({ length: new Date().getFullYear() - 1949 }, (_, i) => new Date().getFullYear() - i);
 

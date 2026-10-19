@@ -143,7 +143,7 @@ export default function ListPage() {
   return (
     <>
       <header className="page-head">
-        <div>
+        <div className="head-text">
           <h1 className="h-page">My List</h1>
           <p className="muted">
             {entries.length.toLocaleString()} titles{refreshing ? ', syncing…' : ''}

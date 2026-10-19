@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Poster from './Poster';
-import { CATEGORIES, CATEGORY_LABEL, STATUS_LABEL } from '@/lib/categories';
+import { CATEGORIES, CATEGORY_LABEL, STATUS_LABEL, countLabel } from '@/lib/categories';
 import { computeStats, isWatched } from '@/lib/stats';
 import { entryHref } from '@/lib/actions';
 
@@ -64,7 +64,7 @@ export function VaultHero({ profile, entries, topLists, actions, isSelf }) {
             {s.byCategory
               .sort((a, b) => b.count - a.count)
               .slice(0, 4)
-              .map((c) => `${c.count} ${c.label.toLowerCase()}`)
+              .map(countLabel)
               .join(', ')}
             .
           </p>
@@ -72,14 +72,28 @@ export function VaultHero({ profile, entries, topLists, actions, isSelf }) {
         {actions && <div className="row">{actions}</div>}
       </div>
       {wall.length > 0 && (
-        <div className="wall" aria-label="Showcase">
+        <div
+          className="wall"
+          aria-label="Showcase"
+          onPointerMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            e.currentTarget.style.setProperty('--mx', (((e.clientX - r.left) / r.width - 0.5) * 2).toFixed(3));
+            e.currentTarget.style.setProperty('--my', (((e.clientY - r.top) / r.height - 0.5) * 2).toFixed(3));
+          }}
+          onPointerLeave={(e) => {
+            e.currentTarget.style.setProperty('--mx', '0');
+            e.currentTarget.style.setProperty('--my', '0');
+          }}
+        >
           {wall.map((e, i) => {
             const rank = i + 1; // first child sits in the centre, the rest fan out
             return (
               <Link key={e.id} href={entryHref(e)} className="wall-item" title={e.title}>
-                <Poster src={e.poster_url} title={e.title}>
-                  {(topLists?.overall || []).includes(e.id) && <span className="wall-rank">{rank}</span>}
-                </Poster>
+                <span className="float">
+                  <Poster src={e.poster_url} title={e.title}>
+                    {(topLists?.overall || []).includes(e.id) && <span className="wall-rank">{rank}</span>}
+                  </Poster>
+                </span>
               </Link>
             );
           })}

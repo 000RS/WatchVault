@@ -45,7 +45,7 @@ export default function TopPage() {
   return (
     <>
       <header className="page-head">
-        <div>
+        <div className="head-text">
           <h1 className="h-page">Top lists</h1>
           <p className="lede">Your overall top {MAX} leads your vault and your profile. Each shelf gets its own ranking too.</p>
         </div>

@@ -9,6 +9,36 @@ import { Icon } from './Icons';
 import Toaster from './Toaster';
 
 const AuthContext = createContext({ session: null, user: null });
+
+function Ambient() {
+  return (
+    <>
+      <div className="ambient" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </div>
+      <div className="grain" aria-hidden="true" />
+    </>
+  );
+}
+
+export function BrandMark() {
+  return (
+    <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <defs>
+        <linearGradient id="wv-gold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#f6e2b0" />
+          <stop offset="0.45" stopColor="#d9b46c" />
+          <stop offset="1" stopColor="#a9803f" />
+        </linearGradient>
+      </defs>
+      <circle cx="16" cy="16" r="14.5" fill="none" stroke="url(#wv-gold)" strokeWidth="1.2" />
+      <circle cx="16" cy="16" r="11" fill="none" stroke="url(#wv-gold)" strokeWidth="0.6" opacity="0.6" />
+      <path d="M9 11.5 12.2 21l3.8-7.6 3.8 7.6L23 11.5" fill="none" stroke="url(#wv-gold)" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
 export const useAuth = () => useContext(AuthContext);
 
 const PRIMARY = [
@@ -44,24 +74,34 @@ export default function AppShell({ children }) {
     if (session === null) clearStore();
   }, [session]);
 
-  if (!sb) return <SetupNeeded />;
+  if (!sb)
+    return (
+      <>
+        <Ambient />
+        <SetupNeeded />
+      </>
+    );
 
   if (isPublic) {
     return (
       <AuthContext.Provider value={{ session: session || null, user: session?.user || null }}>
+        <Ambient />
         {session ? (
           <Frame>{children}</Frame>
         ) : (
           <>
             <header className="public-bar">
               <Link href="/" className="brand">
+                <BrandMark />
                 WatchVault
               </Link>
               <Link href="/" className="btn sm">
                 Sign in
               </Link>
             </header>
-            <main className="main">{children}</main>
+            <main className="main">
+              <div className="page-enter">{children}</div>
+            </main>
           </>
         )}
         <Toaster />
@@ -70,10 +110,17 @@ export default function AppShell({ children }) {
   }
 
   if (session === undefined) return <div className="boot" aria-label="Loading" />;
-  if (!session) return <SignIn sb={sb} />;
+  if (!session)
+    return (
+      <>
+        <Ambient />
+        <SignIn sb={sb} />
+      </>
+    );
 
   return (
     <AuthContext.Provider value={{ session, user: session.user }}>
+      <Ambient />
       <Frame>{children}</Frame>
       <Toaster />
     </AuthContext.Provider>
@@ -90,6 +137,7 @@ function Frame({ children }) {
     <div className="frame">
       <aside className="sidebar" aria-label="Main">
         <Link href="/" className="brand">
+          <BrandMark />
           WatchVault
         </Link>
         <nav className="side-nav">
@@ -115,7 +163,11 @@ function Frame({ children }) {
         )}
       </aside>
 
-      <main className="main">{children}</main>
+      <main className="main">
+        <div className="page-enter" key={path}>
+          {children}
+        </div>
+      </main>
 
       <nav className="tabbar" aria-label="Main">
         {PRIMARY.map((l) => (
@@ -160,8 +212,10 @@ function SignIn({ sb }) {
     <div className="auth">
       <div className="auth-art" aria-hidden="true">
         <div className="auth-art-inner">
-          <p className="auth-kicker">WatchVault</p>
-          <p className="auth-line">Everything you've ever watched. In one place, beautifully kept.</p>
+          <p className="auth-kicker">
+            <BrandMark /> WatchVault
+          </p>
+          <p className="auth-line">Every story you&apos;ve ever loved, kept beautifully.</p>
         </div>
       </div>
       <form className="auth-card" onSubmit={submit}>

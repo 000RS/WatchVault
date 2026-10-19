@@ -58,7 +58,7 @@ export default function FriendsPage() {
   return (
     <>
       <header className="page-head">
-        <div>
+        <div className="head-text">
           <h1 className="h-page">Friends</h1>
           <p className="muted">Friends see your vault, top lists and history. Your private notes stay private.</p>
         </div>

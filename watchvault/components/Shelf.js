@@ -1,15 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { TitleTile } from './Tiles';
 import { useEntries } from '@/lib/store';
 
-/** A horizontal row of titles. Pass `items`, or `load` to fetch them. */
+/**
+ * A horizontal row of titles. Pass `items`, or `load` to fetch them once.
+ * With `hideAdded`, titles already in your list when the row loaded are left out;
+ * titles you tick while browsing stay put (with a check) until you come back later.
+ */
 export default function Shelf({ title, subtitle, items: given, load, hideAdded = false, href, empty = null }) {
   const [items, setItems] = useState(given || null);
   const [error, setError] = useState(null);
   const { lookup } = useEntries();
+  const hiddenAtLoad = useRef(null);
 
   useEffect(() => {
     if (given) {
@@ -24,10 +29,14 @@ export default function Shelf({ title, subtitle, items: given, load, hideAdded =
     return () => {
       alive = false;
     };
+    // `load` is created once by the page; reloading only happens on a new visit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [given, load]);
+  }, []);
 
-  const shown = items ? (hideAdded ? items.filter((i) => !lookup(i)) : items) : null;
+  if (items && hiddenAtLoad.current === null) {
+    hiddenAtLoad.current = new Set(hideAdded ? items.filter((i) => lookup(i)).map((i) => `${i.mediaType}:${i.sourceId}`) : []);
+  }
+  const shown = items ? items.filter((i) => !hiddenAtLoad.current?.has(`${i.mediaType}:${i.sourceId}`)) : null;
   if (shown && !shown.length) return empty;
 
   return (
@@ -49,7 +58,7 @@ export default function Shelf({ title, subtitle, items: given, load, hideAdded =
         <div className="shelf-track">
           {shown
             ? shown.slice(0, 20).map((i) => <TitleTile key={`${i.source}-${i.mediaType}-${i.sourceId}`} item={i} />)
-            : Array.from({ length: 7 }, (_, i) => <div key={i} className="skeleton poster-md" />)}
+            : Array.from({ length: 7 }, (_, i) => <div key={i} className="skeleton" />)}
         </div>
       )}
     </section>

@@ -2,7 +2,7 @@
 // into one "title" shape the rest of the app uses. The normalize functions are
 // pure, so the server routes reuse them.
 
-import { categorize, genreNames } from './categories';
+import { categorize, genreIdsFor, genreNames } from './categories';
 
 const IMG = 'https://image.tmdb.org/t/p/';
 const ANILIST = 'https://graphql.anilist.co';
@@ -163,15 +163,46 @@ export async function getTitle(source, mediaType, id) {
   return normalizeTmdb(await tmdb(`${mediaType}/${id}`), mediaType);
 }
 
-export async function similarTitles(mediaType, id) {
-  const d = await tmdb(`${mediaType}/${id}/recommendations`);
-  let items = (d.results || []).map((r) => normalizeTmdb(r, mediaType));
-  if (items.length < 6) {
-    const s = await tmdb(`${mediaType}/${id}/similar`).catch(() => ({ results: [] }));
-    items = items.concat((s.results || []).map((r) => normalizeTmdb(r, mediaType)));
+/**
+ * Titles like this one. TMDB's recommendations, plus, for anything not in English,
+ * well-loved titles in the same language and genres (a Hindi film brings more Hindi films).
+ */
+export async function similarTitles(mediaType, id, { language, genres = [] } = {}) {
+  const empty = { results: [] };
+  const genreIds = genreIdsFor(genres, mediaType).filter((g) => g !== 18).slice(0, 2);
+  const foreign = language && language !== 'en';
+  const [rec, same] = await Promise.all([
+    tmdb(`${mediaType}/${id}/recommendations`).catch(() => empty),
+    foreign
+      ? tmdb(`discover/${mediaType}`, { with_original_language: language, sort_by: 'vote_count.desc', ...(genreIds.length ? { with_genres: genreIds.join('|') } : {}) }).catch(() => empty)
+      : Promise.resolve(empty),
+  ]);
+  let recs = (rec.results || []).map((r) => normalizeTmdb(r, mediaType));
+  if (recs.length < 8) {
+    const s = await tmdb(`${mediaType}/${id}/similar`).catch(() => empty);
+    recs = recs.concat((s.results || []).map((r) => normalizeTmdb(r, mediaType)));
   }
-  const seen = new Set();
+  let items = recs;
+  if (foreign) {
+    const sameLang = (same.results || []).map((r) => normalizeTmdb(r, mediaType));
+    const recSame = recs.filter((r) => r.language === language);
+    const recOther = recs.filter((r) => r.language !== language);
+    // Same language first, mixing recommendation and discovery, then everything else.
+    items = [];
+    for (let i = 0; i < Math.max(recSame.length, sameLang.length); i++) {
+      if (recSame[i]) items.push(recSame[i]);
+      if (sameLang[i]) items.push(sameLang[i]);
+    }
+    items = items.concat(recOther);
+  }
+  const seen = new Set([String(id)]);
   return items.filter((i) => i.poster && !seen.has(i.sourceId) && seen.add(i.sourceId));
+}
+
+/** Best-known titles in one language, e.g. Hindi films for someone who watches a lot of them. */
+export async function bestInLanguage(mediaType, language) {
+  const d = await tmdb(`discover/${mediaType}`, { with_original_language: language, sort_by: 'vote_count.desc' });
+  return (d.results || []).map((r) => normalizeTmdb(r, mediaType)).filter((i) => i.poster);
 }
 
 /** Search box results: TMDB first, AniList only for anime TMDB doesn't have. */

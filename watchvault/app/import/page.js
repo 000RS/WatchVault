@@ -216,7 +216,7 @@ export default function ImportPage() {
     return (
       <>
         <header className="page-head">
-          <div>
+          <div className="head-text">
             <h1 className="h-page">Check your import</h1>
             <p className="lede">
               Found {groups.sure.length + groups.check.length} titles.
@@ -321,7 +321,7 @@ export default function ImportPage() {
   return (
     <>
       <header className="page-head">
-        <div>
+        <div className="head-text">
           <h1 className="h-page">Import</h1>
           <p className="lede">Bring in any list you keep. Titles are matched in seconds, typos included, and you check everything before it is added.</p>
         </div>

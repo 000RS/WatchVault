@@ -10,6 +10,7 @@ import { CATEGORY_SHORT, STATUS_LABEL, completionPct, progressLabel } from '@/li
 import { addTitle, entryHref, itemHref } from '@/lib/actions';
 import { toast } from '@/lib/toast';
 import { useEntries } from '@/lib/store';
+import { tilt } from './tilt';
 
 const QUICK = [
   { status: 'completed', label: 'Watched it all' },
@@ -38,12 +39,15 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
 
   return (
     <div className="tile">
-      <Link href={itemHref(item)} className="tile-link" aria-label={item.title}>
+      <Link href={itemHref(item)} className="tile-link" aria-label={item.title} {...tilt}>
         <Poster src={item.poster} title={item.title} size={size}>
           {entry && <span className={`tile-badge st-${entry.status}`}>{STATUS_LABEL[entry.status]}</span>}
         </Poster>
       </Link>
       <div className="tile-actions">
+        <button className="tick ghost" onClick={() => (entry ? setEdit(true) : setMenu(true))} aria-label={`More options for ${item.title}`}>
+          <Icon.More width={16} height={16} />
+        </button>
         {entry ? (
           <button className="tick on" onClick={() => setEdit(true)} aria-label={`Edit ${item.title} in your list`}>
             <Icon.Check width={16} height={16} />
@@ -53,9 +57,6 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
             <Icon.Check width={16} height={16} />
           </button>
         )}
-        <button className="tick ghost" onClick={() => (entry ? setEdit(true) : setMenu(true))} aria-label={`More options for ${item.title}`}>
-          <Icon.More width={16} height={16} />
-        </button>
       </div>
       {showMeta && (
         <div className="tile-meta">
@@ -104,7 +105,7 @@ export function EntryTile({ entry, selecting = false, selected = false, onToggle
           {body}
         </button>
       ) : (
-        <Link href={entryHref(entry)} className="tile-link" aria-label={entry.title}>
+        <Link href={entryHref(entry)} className="tile-link" aria-label={entry.title} {...tilt}>
           {body}
         </Link>
       )}

@@ -13,6 +13,17 @@ export const CATEGORIES = [
   { id: 'thai', label: 'Thai drama', short: 'Thai' },
   { id: 'other', label: 'Other', short: 'Other' },
 ];
+/** "4 movies, 2 K-Dramas": shelf names as they read mid-sentence. */
+const COUNT_WORDS = {
+  movies: ['movie', 'movies'], series: ['series', 'series'], anime: ['anime', 'anime'], other: ['other title', 'other titles'],
+  kdrama: ['K-Drama', 'K-Dramas'], turkish: ['Turkish drama', 'Turkish dramas'], indian: ['Indian title', 'Indian titles'],
+  pakistani: ['Pakistani drama', 'Pakistani dramas'], cdrama: ['C-Drama', 'C-Dramas'], jdrama: ['J-Drama', 'J-Dramas'], thai: ['Thai drama', 'Thai dramas'],
+};
+export function countLabel(c) {
+  const w = COUNT_WORDS[c.id] || [c.label, c.label];
+  return `${c.count} ${c.count === 1 ? w[0] : w[1]}`;
+}
+
 export const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]));
 export const CATEGORY_SHORT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.short]));
 
@@ -36,6 +47,26 @@ export const TV_GENRES = {
   10751: 'Family', 10762: 'Kids', 9648: 'Mystery', 10763: 'News', 10764: 'Reality', 10765: 'Sci-Fi & Fantasy',
   10766: 'Soap', 10767: 'Talk', 10768: 'War & Politics', 37: 'Western',
 };
+/** Genre names back to TMDB ids for the given media type (TV and movie lists differ). */
+export function genreIdsFor(names = [], mediaType) {
+  const map = mediaType === 'movie' ? MOVIE_GENRES : TV_GENRES;
+  const alias = { 'Science Fiction': 'Sci-Fi & Fantasy', 'Sci-Fi & Fantasy': 'Science Fiction', Action: 'Action & Adventure', 'Action & Adventure': 'Action', Adventure: 'Action & Adventure', Fantasy: 'Sci-Fi & Fantasy', War: 'War & Politics', 'War & Politics': 'War' };
+  const ids = [];
+  for (const n of names || []) {
+    const hit = Object.entries(map).find(([, v]) => v === n || v === alias[n]);
+    if (hit && !ids.includes(Number(hit[0]))) ids.push(Number(hit[0]));
+  }
+  return ids;
+}
+
+export function languageName(code) {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code);
+  } catch {
+    return code;
+  }
+}
+
 export function genreNames(ids = [], mediaType) {
   const map = mediaType === 'movie' ? MOVIE_GENRES : TV_GENRES;
   return ids.map((id) => map[id] || MOVIE_GENRES[id] || TV_GENRES[id]).filter(Boolean);

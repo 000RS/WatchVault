@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BROWSE_SORTS, BROWSE_TYPES, browseTitles, newShelves, similarTitles, tmdb, normalizeTmdb } from '@/lib/catalog';
-import { DECADES, MOVIE_GENRES, TV_GENRES } from '@/lib/categories';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BROWSE_SORTS, BROWSE_TYPES, bestInLanguage, browseTitles, newShelves, similarTitles, tmdb, normalizeTmdb } from '@/lib/catalog';
+import { DECADES, MOVIE_GENRES, TV_GENRES, languageName } from '@/lib/categories';
 import { useEntries, hiddenCategories, viewMemory } from '@/lib/store';
 import Shelf from '@/components/Shelf';
 import { TitleTile } from '@/components/Tiles';
@@ -19,12 +19,14 @@ export default function ExplorePage() {
     const t = new URLSearchParams(window.location.search).get('tab');
     if (t && TABS.some((x) => x.id === t)) setTab(t);
   }, []);
-  useEffect(() => viewMemory.set('explore', { ...(viewMemory.get('explore') || {}), tab }), [tab]);
+  useEffect(() => {
+    viewMemory.set('explore', { ...(viewMemory.get('explore') || {}), tab });
+  }, [tab]);
 
   return (
     <>
       <header className="page-head">
-        <div>
+        <div className="head-text">
           <h1 className="h-page">Explore</h1>
           <p className="muted">
             {tab === 'foryou'
@@ -53,34 +55,65 @@ function ForYou() {
   const { entries, profile } = useEntries();
   const hidden = hiddenCategories(profile);
 
-  // Seeds: your highest-rated and most recently finished titles.
-  const seeds = useMemo(() => {
-    const pool = (entries || []).filter((e) => e.source === 'tmdb' && e.status !== 'plan' && e.status !== 'dropped' && !hidden.has(e.category));
-    const rated = [...pool].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || new Date(b.updated_at) - new Date(a.updated_at));
-    const out = [];
-    const cats = new Set();
-    for (const e of rated) {
-      if (out.length >= 6) break;
-      if (cats.has(e.category) && out.length < 4) continue; // variety first
-      cats.add(e.category);
-      out.push(e);
-    }
-    for (const e of rated) if (out.length < 6 && !out.includes(e)) out.push(e);
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries?.length, profile?.hidden_categories]);
-
-  const loaders = useMemo(() => seeds.map((e) => ({ e, load: () => similarTitles(e.media_type, e.source_id).then((l) => l.filter((i) => !hidden.has(i.category))) })), [seeds]); // eslint-disable-line react-hooks/exhaustive-deps
-  const trending = useCallback(() => tmdb('trending/all/week').then((d) => (d.results || []).filter((r) => r.media_type !== 'person').map((r) => normalizeTmdb(r)).filter((i) => i.poster && !hidden.has(i.category))), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Rows are chosen once per visit, so ticking titles never reshuffles the page.
+  // Next time you open Explore, they reflect what you just added.
+  const plan = useRef(null);
+  if (!plan.current && entries) plan.current = buildPlan(entries, hidden);
+  const rows = plan.current || { seeds: [], languages: [] };
 
   return (
     <>
-      {loaders.map(({ e, load }) => (
+      {rows.seeds.map(({ e, load }) => (
         <Shelf key={e.id} title={`Because you watched ${e.title}`} load={load} hideAdded />
       ))}
-      <Shelf title="Popular this week" load={trending} hideAdded />
+      {rows.languages.map(({ code, media, load }) => (
+        <Shelf key={code + media} title={`Best-loved ${languageName(code)} ${media === 'movie' ? 'films' : 'series'}`} subtitle="You watch a lot in this language" load={load} hideAdded />
+      ))}
+      <Shelf title="Popular this week" load={rows.trending || (() => Promise.resolve([]))} hideAdded />
     </>
   );
+}
+
+function buildPlan(entries, hidden) {
+  const ok = (i) => !hidden.has(i.category);
+  const pool = entries.filter((e) => e.source === 'tmdb' && e.status !== 'plan' && e.status !== 'dropped' && ok(e));
+  const recent = [...pool].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  const loved = [...pool].filter((e) => e.rating != null).sort((a, b) => b.rating - a.rating);
+  const seeds = [];
+  for (const e of [...recent.slice(0, 3), ...loved.slice(0, 3), ...recent.slice(3)]) {
+    if (seeds.length >= 6) break;
+    if (!seeds.includes(e)) seeds.push(e);
+  }
+
+  // Languages other than English that you watch often
+  const counts = {};
+  for (const e of pool) {
+    if (!e.original_language || e.original_language === 'en') continue;
+    const media = e.media_type === 'movie' ? 'movie' : 'tv';
+    const k = `${e.original_language}|${media}`;
+    counts[k] = (counts[k] || 0) + 1;
+  }
+  const languages = Object.entries(counts)
+    .filter(([, n]) => n >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([k]) => {
+      const [code, media] = k.split('|');
+      return { code, media, load: () => bestInLanguage(media, code).then((l) => l.filter(ok)) };
+    })
+    .filter((l) => !(l.code === 'ja' && l.media === 'tv')); // anime has its own rows
+
+  return {
+    seeds: seeds.map((e) => ({
+      e,
+      load: () => similarTitles(e.media_type, e.source_id, { language: e.original_language, genres: e.genres || [] }).then((l) => l.filter(ok)),
+    })),
+    languages,
+    trending: () =>
+      tmdb('trending/all/week').then((d) =>
+        (d.results || []).filter((r) => r.media_type !== 'person').map((r) => normalizeTmdb(r)).filter((i) => i.poster && ok(i))
+      ),
+  };
 }
 
 function Browse() {
@@ -102,7 +135,15 @@ function Browse() {
   const year = /^\d{4}$/.test(when) ? when : null;
   const decade = /^\d{4}s$/.test(when) ? when.slice(0, 4) : null;
 
-  useEffect(() => viewMemory.set('browse', { typeId, when, genre, sort, hideSeen }), [typeId, when, genre, sort, hideSeen]);
+  useEffect(() => {
+    viewMemory.set('browse', { typeId, when, genre, sort, hideSeen });
+  }, [typeId, when, genre, sort, hideSeen]);
+
+  // Titles already in your list are hidden as each page loads. Ones you tick now stay
+  // on screen with a check, so the grid doesn't jump around while you work through it.
+  const lookupRef = useRef(lookup);
+  lookupRef.current = lookup;
+  const seenAtLoad = useRef(new Set());
 
   const load = useCallback(
     async (page) => {
@@ -110,6 +151,8 @@ function Browse() {
       setError(null);
       try {
         const r = await browseTitles({ typeId, year, decade, genre, sort, page });
+        if (page === 1) seenAtLoad.current = new Set();
+        for (const i of r.items) if (lookupRef.current(i)) seenAtLoad.current.add(`${i.mediaType}:${i.sourceId}`);
         setPages((p) => ({ items: page === 1 ? r.items : p.items.concat(r.items), page, total: r.totalPages }));
       } catch (e) {
         setError(e.message);
@@ -126,7 +169,7 @@ function Browse() {
   }, [load]);
 
   // Keep the grid full when most of a page is already in your list.
-  const shown = pages.items.filter((i, idx, arr) => arr.findIndex((x) => x.sourceId === i.sourceId) === idx && (!hideSeen || !lookup(i)));
+  const shown = pages.items.filter((i, idx, arr) => arr.findIndex((x) => x.sourceId === i.sourceId) === idx && (!hideSeen || !seenAtLoad.current.has(`${i.mediaType}:${i.sourceId}`)));
   useEffect(() => {
     if (!busy && hideSeen && pages.page > 0 && pages.page < pages.total && pages.page < 10 && shown.length < 12) load(pages.page + 1);
   }, [busy, hideSeen, pages.page, pages.total, shown.length, load]);
