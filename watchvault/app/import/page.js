@@ -1,374 +1,458 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { animeByMalIds, anilistUserList, normalizeTmdb, searchAnime, sleep, tmdb } from '@/lib/catalog';
-import { CATEGORY_LABEL, STATUSES } from '@/lib/categories';
-import { saveMany, snapshotFromTitle } from '@/lib/list';
-import { useList } from '@/components/useList';
+import { extractFromText, readFile } from '@/lib/extract';
+import { anilistUserList } from '@/lib/catalog';
+import { CATEGORY_SHORT, STATUSES, STATUS_LABEL } from '@/lib/categories';
+import { keyOfTitle, progressFor, snapshotFromTitle } from '@/lib/list';
+import { saveEntries, useEntries } from '@/lib/store';
+import Poster from '@/components/Poster';
+import { toast } from '@/lib/toast';
 
-const METHODS = [
-  { id: 'mal', label: 'MyAnimeList file' },
-  { id: 'anilist', label: 'AniList username' },
-  { id: 'text', label: 'Paste a list of titles' },
+const KINDS = [
+  { id: 'any', label: 'A mix' },
+  { id: 'anime', label: 'Anime' },
+  { id: 'movie', label: 'Movies' },
+  { id: 'tv', label: 'Series & dramas' },
 ];
-
-const MAL_STATUS = {
-  watching: 'watching', '1': 'watching',
-  completed: 'completed', '2': 'completed',
-  'on-hold': 'on_hold', '3': 'on_hold',
-  dropped: 'dropped', '4': 'dropped',
-  'plan to watch': 'plan', '6': 'plan',
-};
-
-const STATUS_WORDS = {
-  watching: 'watching', current: 'watching',
-  completed: 'completed', done: 'completed', watched: 'completed', finished: 'completed',
-  plan: 'plan', 'plan to watch': 'plan', 'to watch': 'plan', later: 'plan',
-  'on hold': 'on_hold', 'on-hold': 'on_hold', paused: 'on_hold', hold: 'on_hold',
-  dropped: 'dropped',
-};
+const SURE = 0.85;
+const MAYBE = 0.55;
+const CHUNK = 40;
 
 export default function ImportPage() {
-  const [method, setMethod] = useState('mal');
-  const [rows, setRows] = useState(null);
-  const [unmatched, setUnmatched] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState('');
-  const [msg, setMsg] = useState(null);
+  const { lookup } = useEntries();
+  const [stage, setStage] = useState('input');
+  const [text, setText] = useState('');
+  const [files, setFiles] = useState([]);
+  const [kind, setKind] = useState('any');
+  const [aniUser, setAniUser] = useState('');
+  const [over, setOver] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [rows, setRows] = useState([]); // { line, best, confidence, alternatives, include, status }
+  const [leftover, setLeftover] = useState('');
+  const [defaultStatus, setDefaultStatus] = useState('completed');
   const [skipExisting, setSkipExisting] = useState(true);
-  const { lookup, reload } = useList();
+  const [showAll, setShowAll] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const fileInput = useRef(null);
 
-  function reset() {
-    setRows(null);
-    setUnmatched([]);
-    setMsg(null);
-    setProgress('');
+  async function collect() {
+    const lines = [];
+    for (const f of files) {
+      try {
+        lines.push(...(await readFile(f)));
+      } catch (e) {
+        throw new Error(`${f.name}: ${e.message}`);
+      }
+    }
+    if (text.trim()) lines.push(...extractFromText(text));
+    if (aniUser.trim()) {
+      const list = await anilistUserList(aniUser.trim());
+      if (!list.length) throw new Error('That AniList profile has no anime, or it is private.');
+      lines.push(
+        ...list.map((r, i) => ({ id: `ani${i}`, raw: r.ani.title, q: r.ani.names[0] || r.ani.title, year: r.ani.year, kind: 'anime', status: r.status, episodes: r.episodes || null, rating: r.rating }))
+      );
+    }
+    return lines;
   }
 
-  async function run(task) {
-    reset();
-    setBusy(true);
+  async function match(lines) {
+    setStage('matching');
+    setProgress({ done: 0, total: lines.length });
+    const out = new Map();
+    const chunks = [];
+    for (let i = 0; i < lines.length; i += CHUNK) chunks.push(lines.slice(i, i + CHUNK));
+    let next = 0;
+    const worker = async () => {
+      while (next < chunks.length) {
+        const chunk = chunks[next++];
+        let data = null;
+        for (let attempt = 0; attempt < 2 && !data; attempt++) {
+          try {
+            const res = await fetch('/api/match', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ items: chunk.map((l) => ({ id: l.id, q: l.q, year: l.year, kind: l.kind || kind })) }),
+            });
+            data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Matching failed.');
+          } catch (e) {
+            if (attempt === 1) throw e;
+          }
+        }
+        for (const r of data.results || []) out.set(r.id, r);
+        setProgress((p) => ({ ...p, done: Math.min(p.total, p.done + chunk.length) }));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, worker));
+    return lines.map((line) => {
+      const r = out.get(line.id) || {};
+      return { line, best: r.best || null, confidence: r.confidence || 0, alternatives: r.alternatives || [], include: Boolean(r.best && r.confidence >= SURE), status: line.status || null };
+    });
+  }
+
+  async function start() {
+    setError(null);
     try {
-      await task();
+      const lines = await collect();
+      if (!lines.length) throw new Error('No titles found. Add a file, paste some titles, or enter an AniList username.');
+      const matched = await match(lines);
+      setRows(matched);
+      setLeftover(matched.filter((r) => !r.best || r.confidence < MAYBE).map((r) => r.line.raw).join('\n'));
+      setStage('review');
     } catch (e) {
-      setMsg({ kind: 'error', text: e.message });
-    } finally {
-      setBusy(false);
-      setProgress('');
+      setError(e.message);
+      setStage('input');
     }
   }
 
-  /* ----- MyAnimeList export file ----- */
-  function onMalFile(file) {
-    if (!file) return;
-    run(async () => {
-      setProgress('Reading file…');
-      const list = await readMalFile(file);
-      setProgress(`Matching ${list.length} anime with AniList…`);
-      const found = await animeByMalIds(list.map((a) => a.malId).filter(Boolean));
-      const byMal = new Map(found.map((i) => [i.malId, i]));
-      const ok = [];
-      const missing = [];
-      for (const a of list) {
-        const item = byMal.get(a.malId);
-        if (!item) missing.push(a.title);
-        else ok.push({ item, status: a.status, episodes: a.episodes, rating: a.score || null, notes: null });
-      }
-      setRows(ok.map((r) => ({ ...r, include: true })));
-      setUnmatched(missing);
-    });
-  }
-
-  /* ----- AniList username ----- */
-  function onAnilist(user) {
-    if (!user.trim()) return;
-    run(async () => {
-      setProgress('Loading your AniList…');
-      const list = await anilistUserList(user.trim());
-      if (!list.length) throw new Error('That AniList profile has no anime, or it is set to private.');
-      setRows(list.map((r) => ({ ...r, include: true })));
-    });
-  }
-
-  /* ----- Pasted titles ----- */
-  function onText(text, kind) {
-    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  async function retryLeftover() {
+    setError(null);
+    const lines = extractFromText(leftover);
     if (!lines.length) return;
-    run(async () => {
-      const ok = [];
-      const missing = [];
-      for (let i = 0; i < lines.length; i++) {
-        const { name, status, episodes } = parseLine(lines[i]);
-        setProgress(`Looking up ${i + 1} of ${lines.length}: ${name}`);
-        let item = null;
-        try {
-          if (kind === 'anime') {
-            item = (await searchAnime(name, 1))[0] || null;
-          } else {
-            const r = await tmdb('search/multi', { query: name, include_adult: 'false' });
-            const hit = (r.results || []).find((x) => x.media_type === 'movie' || x.media_type === 'tv');
-            item = hit ? normalizeTmdb(hit) : null;
-          }
-        } catch (e) {
-          if (/rate/i.test(e.message)) {
-            setProgress('Waiting a minute for AniList…');
-            await sleep(60000);
-            i--;
-            continue;
-          }
-        }
-        if (item) ok.push({ item, status, episodes, rating: null, notes: null, query: name, include: true });
-        else missing.push(name);
-        await sleep(kind === 'anime' ? 750 : 150);
-      }
-      setRows(ok);
-      setUnmatched(missing);
-    });
+    const keep = rows.filter((r) => r.best && r.confidence >= MAYBE);
+    try {
+      const again = await match(lines);
+      const all = keep.concat(again);
+      setRows(all);
+      setLeftover(again.filter((r) => !r.best || r.confidence < MAYBE).map((r) => r.line.raw).join('\n'));
+    } catch (e) {
+      setError(e.message);
+    }
+    setStage('review');
+  }
+
+  const groups = useMemo(() => {
+    const sure = [];
+    const check = [];
+    const seen = new Set();
+    for (const r of rows) {
+      if (!r.best || r.confidence < MAYBE) continue;
+      const k = keyOfTitle(r.best);
+      if (seen.has(k)) continue; // same title listed twice
+      seen.add(k);
+      (r.confidence >= SURE ? sure : check).push(r);
+    }
+    return { sure, check };
+  }, [rows]);
+
+  const chosen = [...groups.sure, ...groups.check].filter((r) => r.include && !(skipExisting && lookup(r.best)));
+
+  function update(row, patch) {
+    setRows((rs) => rs.map((r) => (r === row ? { ...r, ...patch } : r)));
   }
 
   async function doImport() {
-    const chosen = rows.filter((r) => r.include && !(skipExisting && lookup(r.item)));
-    if (!chosen.length) return setMsg({ kind: 'error', text: 'Nothing selected to import.' });
-    setBusy(true);
-    setMsg(null);
+    const toRows = chosen.map((r) => {
+      const t = r.best;
+      const status = r.status || r.line.status || defaultStatus;
+      const { episodes, seasons, season, episode, pct } = r.line;
+      return {
+        ...snapshotFromTitle(t),
+        category: t.category,
+        ...progressFor(t, { status, episodes, seasons, season, episode, pct }),
+        rating: r.line.rating ? Math.min(10, Number(r.line.rating)) : null,
+      };
+    });
+    setStage('saving');
     try {
-      const n = await saveMany(chosen.map(toEntry));
-      await reload();
-      setRows(null);
-      setUnmatched([]);
-      setMsg({ kind: 'ok', text: `Imported ${n} titles.` });
+      const saved = await saveEntries(toRows);
+      setResult({ count: saved.length, notFound: leftover.split('\n').filter((l) => l.trim()).length });
+      setStage('done');
     } catch (e) {
-      setMsg({ kind: 'error', text: e.message });
-    } finally {
-      setBusy(false);
+      toast(e.message, { kind: 'error' });
+      setStage('review');
     }
   }
 
-  const selected = rows ? rows.filter((r) => r.include && !(skipExisting && lookup(r.item))).length : 0;
+  /* ---------------- Screens ---------------- */
 
-  return (
-    <>
-      <div className="stack" style={{ gap: 4 }}>
-        <h1>Import</h1>
-        <p className="muted">Bring in a list you already have. You&apos;ll see a preview before anything is saved.</p>
+  if (stage === 'matching' || stage === 'saving') {
+    const pct = progress.total ? (progress.done / progress.total) * 100 : 0;
+    return (
+      <div className="center-page">
+        <div className="card narrow" style={{ width: '100%' }}>
+          <h1 className="h-section">{stage === 'saving' ? 'Adding to your list…' : `Matching ${progress.total} titles…`}</h1>
+          <div className="progressbar">
+            <i style={{ width: `${stage === 'saving' ? 100 : pct}%` }} />
+          </div>
+          <p className="muted small">{stage === 'saving' ? 'Almost done.' : `${progress.done} of ${progress.total} checked`}</p>
+        </div>
       </div>
+    );
+  }
 
-      <div className="chips">
-        {METHODS.map((m) => (
-          <button key={m.id} className={`chip ${method === m.id ? 'on' : ''}`} onClick={() => { setMethod(m.id); reset(); }}>
-            {m.label}
+  if (stage === 'done') {
+    return (
+      <div className="empty">
+        <h1 className="h-page">{result.count} titles added</h1>
+        {result.notFound > 0 && <p className="lede">{result.notFound} lines weren&apos;t matched. You can add those from Search.</p>}
+        <div className="row">
+          <Link href="/list" className="btn primary">
+            Open My List
+          </Link>
+          <button
+            className="btn"
+            onClick={() => {
+              setStage('input');
+              setRows([]);
+              setFiles([]);
+              setText('');
+              setAniUser('');
+            }}
+          >
+            Import more
           </button>
-        ))}
+        </div>
       </div>
+    );
+  }
 
-      <section className="panel">
-        {method === 'mal' && <MalForm busy={busy} onFile={onMalFile} />}
-        {method === 'anilist' && <AnilistForm busy={busy} onSubmit={onAnilist} />}
-        {method === 'text' && <TextForm busy={busy} onSubmit={onText} />}
-        {progress && <p className="muted small">{progress}</p>}
-      </section>
+  if (stage === 'review') {
+    const notFound = leftover.split('\n').filter((l) => l.trim()).length;
+    const sureShown = showAll ? groups.sure : groups.sure.slice(0, 40);
+    return (
+      <>
+        <header className="page-head">
+          <div>
+            <h1 className="h-page">Check your import</h1>
+            <p className="lede">
+              Found {groups.sure.length + groups.check.length} titles.
+              {groups.check.length ? ` ${groups.check.length} need a quick look.` : ''}
+              {notFound ? ` ${notFound} couldn't be found.` : ''}
+            </p>
+          </div>
+          <div className="row">
+            <button className="btn" onClick={() => setStage('input')}>
+              Back
+            </button>
+            <button className="btn primary" disabled={!chosen.length} onClick={doImport}>
+              Add {chosen.length} {chosen.length === 1 ? 'title' : 'titles'}
+            </button>
+          </div>
+        </header>
 
-      {msg && (
-        <div className={`notice ${msg.kind}`}>
-          {msg.text} {msg.kind === 'ok' && <Link href="/" style={{ textDecoration: 'underline' }}>Open my list</Link>}
+        <div className="group">
+          <div className="group-row">
+            <div>
+              <b>Lines without a status</b>
+              <span className="muted small">Used when your list didn&apos;t say.</span>
+            </div>
+            <select id="default-status" className="select inline" value={defaultStatus} onChange={(e) => setDefaultStatus(e.target.value)}>
+              {STATUSES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="group-row">
+            <b>Skip titles already in my list</b>
+            <span className="toggle">
+              <input id="skip-existing" type="checkbox" checked={skipExisting} onChange={(e) => setSkipExisting(e.target.checked)} aria-label="Skip titles already in my list" />
+              <span />
+            </span>
+          </div>
         </div>
-      )}
 
-      {unmatched.length > 0 && (
-        <div className="notice">
-          Couldn&apos;t find {unmatched.length}: {unmatched.slice(0, 20).join(', ')}
-          {unmatched.length > 20 ? '…' : ''}. Add these from Search instead.
-        </div>
-      )}
-
-      {rows && rows.length > 0 && (
-        <section className="stack">
-          <div className="spread">
-            <h2>Preview · {rows.length} found</h2>
+        {notFound > 0 && (
+          <section className="section">
+            <div className="stack-sm">
+              <h2 className="h-section">Not found</h2>
+              <p className="muted">Only the lines we couldn&apos;t match are left here. Fix the spelling, add the year, or delete lines you don&apos;t need, then search again.</p>
+            </div>
+            <textarea id="leftover" className="textarea" style={{ minHeight: 140 }} value={leftover} onChange={(e) => setLeftover(e.target.value)} />
             <div className="row">
-              <label className="row small">
-                <input id="skip-existing" type="checkbox" checked={skipExisting} onChange={(e) => setSkipExisting(e.target.checked)} />
-                Skip titles already in my list
-              </label>
-              <button className="btn primary" disabled={busy || !selected} onClick={doImport}>
-                Import {selected} titles
+              <button className="btn" onClick={retryLeftover} disabled={!leftover.trim()}>
+                Search these again
               </button>
             </div>
+          </section>
+        )}
+
+        {groups.check.length > 0 && (
+          <section className="section">
+            <h2 className="h-section">Is this the one?</h2>
+            <div className="review">
+              {groups.check.map((r) => (
+                <ReviewRow key={r.line.id} r={r} lookup={lookup} skipExisting={skipExisting} defaultStatus={defaultStatus} onChange={(p) => update(r, p)} ask />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {groups.sure.length > 0 && (
+          <section className="section">
+            <div className="spread">
+              <h2 className="h-section">Matched</h2>
+              <select
+                className="select inline"
+                aria-label="Set status for every matched title"
+                value=""
+                onChange={(e) => e.target.value && setRows((rs) => rs.map((r) => (groups.sure.includes(r) ? { ...r, status: e.target.value } : r)))}
+              >
+                <option value="">Set status for all</option>
+                {STATUSES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="review">
+              {sureShown.map((r) => (
+                <ReviewRow key={r.line.id} r={r} lookup={lookup} skipExisting={skipExisting} defaultStatus={defaultStatus} onChange={(p) => update(r, p)} />
+              ))}
+            </div>
+            {!showAll && groups.sure.length > 40 && (
+              <button className="btn" onClick={() => setShowAll(true)}>
+                Show all {groups.sure.length}
+              </button>
+            )}
+          </section>
+        )}
+      </>
+    );
+  }
+
+  // Input
+  return (
+    <>
+      <header className="page-head">
+        <div>
+          <h1 className="h-page">Import</h1>
+          <p className="lede">Bring in any list you keep. Titles are matched in seconds, typos included, and you check everything before it is added.</p>
+        </div>
+      </header>
+
+      {error && <p className="notice error">{error}</p>}
+
+      <div
+        className={`drop ${over ? 'over' : ''}`}
+        onDragOver={(e) => (e.preventDefault(), setOver(true))}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          setFiles((f) => [...f, ...e.dataTransfer.files]);
+        }}
+      >
+        <h2 className="h-section">Drop files here</h2>
+        <p className="muted small">Excel, CSV, Word (.docx), text, Letterboxd or IMDb exports, MyAnimeList export</p>
+        <input
+          ref={fileInput}
+          id="files"
+          type="file"
+          multiple
+          hidden
+          accept=".xlsx,.xls,.xlsm,.ods,.csv,.tsv,.txt,.md,.rtf,.docx,.xml,.gz,.json"
+          onChange={(e) => setFiles((f) => [...f, ...e.target.files])}
+        />
+        <button className="btn" onClick={() => fileInput.current?.click()}>
+          Choose files
+        </button>
+        {files.length > 0 && (
+          <div className="chips wrap">
+            {files.map((f, i) => (
+              <button key={i} className="chip" onClick={() => setFiles(files.filter((_, j) => j !== i))} title="Remove">
+                {f.name} ×
+              </button>
+            ))}
           </div>
-          <div className="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th></th>
-                  <th></th>
-                  <th>Title</th>
-                  <th>Shelf</th>
-                  <th>Status</th>
-                  <th>Eps</th>
-                  <th>Rating</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const exists = !!lookup(r.item);
-                  return (
-                    <tr key={`${r.item.source}-${r.item.sourceId}-${i}`} style={{ opacity: r.include && !(skipExisting && exists) ? 1 : 0.5 }}>
-                      <td>
-                        <input
-                          id={`inc-${i}`}
-                          type="checkbox"
-                          aria-label={`Include ${r.item.title}`}
-                          checked={r.include}
-                          onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, include: e.target.checked } : x)))}
-                        />
-                      </td>
-                      <td>{r.item.poster ? <img src={r.item.poster} alt="" /> : null}</td>
-                      <td style={{ minWidth: 180 }}>
-                        <div style={{ fontWeight: 600 }}>{r.item.title}</div>
-                        <div className="small muted">
-                          {[r.item.year, r.query && r.query.toLowerCase() !== r.item.title.toLowerCase() ? `you typed "${r.query}"` : null, exists ? 'already in your list' : null]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </div>
-                      </td>
-                      <td>{CATEGORY_LABEL[r.item.category]}</td>
-                      <td>
-                        <select
-                          id={`st-${i}`}
-                          className="select"
-                          style={{ padding: '5px 8px', minWidth: 130 }}
-                          value={r.status}
-                          onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, status: e.target.value } : x)))}
-                        >
-                          {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                        </select>
-                      </td>
-                      <td className="num">
-                        {r.item.mediaType === 'movie' ? '—' : `${r.episodes ?? 0}${r.item.totalEpisodes ? `/${r.item.totalEpisodes}` : ''}`}
-                      </td>
-                      <td className="num">{r.rating ?? '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+        )}
+      </div>
+
+      <label className="field">
+        <span>Or paste titles, in any format</span>
+        <textarea
+          id="paste"
+          className="textarea"
+          style={{ minHeight: 200 }}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={'Completed:\nBreaking Bad\nAttack on Titan S4\n\nDropped:\nOne Piece ep 750\nInception (2010) - half'}
+        />
+      </label>
+      <p className="hint">Headings like &quot;Completed&quot;, &quot;Dropped&quot; or &quot;Movies&quot; apply to the lines under them. You can add a year, &quot;S2&quot;, &quot;ep 12&quot;, &quot;half&quot; or a rating like 9/10 anywhere on a line.</p>
+
+      <div className="toolbar">
+        <label className="field" style={{ flex: '1 1 200px' }}>
+          <span>What&apos;s in this list?</span>
+          <select id="kind" className="select" value={kind} onChange={(e) => setKind(e.target.value)}>
+            {KINDS.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field" style={{ flex: '1 1 200px' }}>
+          <span>AniList username (optional)</span>
+          <input id="anilist-user" className="input" value={aniUser} onChange={(e) => setAniUser(e.target.value)} placeholder="Public profiles only" />
+        </label>
+      </div>
+
+      <div className="row">
+        <button className="btn primary" onClick={start} disabled={!files.length && !text.trim() && !aniUser.trim()}>
+          Find my titles
+        </button>
+        <span className="muted small">PDF or photo? Copy the text out and paste it here.</span>
+      </div>
     </>
   );
 }
 
-function toEntry(r) {
-  const t = r.item;
-  const done = r.status === 'completed';
-  const isMovie = t.mediaType === 'movie';
-  let episodes = isMovie ? null : r.episodes ?? 0;
-  if (!isMovie && done && t.totalEpisodes) episodes = t.totalEpisodes;
-  return {
-    ...snapshotFromTitle(t),
-    category: t.category,
-    status: r.status,
-    episodes_watched: episodes,
-    movie_progress_pct: isMovie ? (done ? 100 : 0) : null,
-    rating: r.rating ? Math.min(10, Number(r.rating)) : null,
-    notes: r.notes || null,
-  };
-}
-
-function parseLine(line) {
-  // "Title", "Title | completed", "Title | watching | 12" (also accepts commas or tabs as separators)
-  const parts = line.split(/\s*[|\t]\s*/);
-  const name = parts[0].replace(/^\d+[.)]\s*/, '').trim();
-  let status = 'completed';
-  let explicit = false;
-  let episodes = null;
-  for (const p of parts.slice(1)) {
-    const lower = p.toLowerCase().trim();
-    if (STATUS_WORDS[lower]) {
-      status = STATUS_WORDS[lower];
-      explicit = true;
-    }
-    else if (/^\d+$/.test(lower)) episodes = parseInt(lower, 10);
-  }
-  // A bare episode count with no status means you're part-way through.
-  if (episodes && !explicit) status = 'watching';
-  return { name, status, episodes };
-}
-
-async function readMalFile(file) {
-  let text;
-  if (/\.gz$/i.test(file.name)) {
-    if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot open .gz files. Unzip it first, then choose the .xml file.');
-    const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
-    text = await new Response(stream).text();
-  } else {
-    text = await file.text();
-  }
-  const doc = new DOMParser().parseFromString(text, 'application/xml');
-  const nodes = [...doc.getElementsByTagName('anime')];
-  if (!nodes.length) throw new Error('No anime found in that file. Use the export from myanimelist.net/panel.php?go=export.');
-  const get = (n, tag) => n.getElementsByTagName(tag)[0]?.textContent?.trim() || '';
-  return nodes.map((n) => ({
-    malId: parseInt(get(n, 'series_animedb_id'), 10) || null,
-    title: get(n, 'series_title'),
-    episodes: parseInt(get(n, 'my_watched_episodes'), 10) || 0,
-    score: parseInt(get(n, 'my_score'), 10) || null,
-    status: MAL_STATUS[get(n, 'my_status').toLowerCase()] || 'plan',
-  }));
-}
-
-function MalForm({ busy, onFile }) {
+function ReviewRow({ r, lookup, skipExisting, defaultStatus, onChange, ask = false }) {
+  const t = r.best;
+  const exists = Boolean(lookup(t));
+  const off = !r.include || (skipExisting && exists);
+  const status = r.status || r.line.status || defaultStatus;
+  const extras = [r.line.season ? `S${r.line.season} E${r.line.episode || 0}` : null, r.line.seasons ? `${r.line.seasons} seasons` : null, r.line.episodes ? `${r.line.episodes} eps` : null, r.line.pct != null && r.line.pct < 100 ? `${r.line.pct}%` : null]
+    .filter(Boolean)
+    .join(', ');
   return (
-    <div className="stack">
-      <h2>From MyAnimeList</h2>
-      <ol className="muted small" style={{ margin: 0, paddingLeft: 18 }}>
-        <li>On myanimelist.net, go to your profile menu → Settings → Export (or open myanimelist.net/panel.php?go=export).</li>
-        <li>Choose &quot;Anime List&quot; and download the file. It ends in .xml.gz.</li>
-        <li>Pick that file below. You can choose the .gz file directly.</li>
-      </ol>
-      <input id="mal-file" type="file" accept=".xml,.gz,application/xml,application/gzip" disabled={busy} onChange={(e) => onFile(e.target.files?.[0])} />
+    <div className={`review-row ${off ? 'off' : ''}`}>
+      <input id={`inc-${r.line.id}`} type="checkbox" checked={r.include} onChange={(e) => onChange({ include: e.target.checked })} aria-label={`Include ${t.title}`} />
+      <Poster src={t.poster} title={t.title} />
+      <div style={{ minWidth: 0 }}>
+        <b>{t.title}</b>{' '}
+        <span className="muted small">{[t.year, CATEGORY_SHORT[t.category]].filter(Boolean).join(', ')}</span>
+        <div className="review-from">
+          From your list: {r.line.raw}
+          {exists ? ' (already in your list)' : ''}
+        </div>
+        {ask && r.alternatives.length > 0 && (
+          <div className="alts">
+            {r.alternatives.map((a) => (
+              <button
+                key={`${a.mediaType}${a.sourceId}`}
+                className="chip"
+                onClick={() => onChange({ best: a, alternatives: [t, ...r.alternatives.filter((x) => x !== a)], include: true })}
+              >
+                {a.title}
+                {a.year ? ` (${a.year})` : ''}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="review-controls">
+        {extras && <span className="muted small">{extras}</span>}
+        <select className="select" value={status} onChange={(e) => onChange({ status: e.target.value })} aria-label={`Status for ${t.title}`}>
+          {STATUSES.map((s) => (
+            <option key={s.id} value={s.id}>
+              {STATUS_LABEL[s.id]}
+            </option>
+          ))}
+        </select>
+        {ask && !r.include && (
+          <button className="btn sm" onClick={() => onChange({ include: true })}>
+            Yes, this one
+          </button>
+        )}
+      </div>
     </div>
   );
 }
-
-function AnilistForm({ busy, onSubmit }) {
-  const [user, setUser] = useState('');
-  return (
-    <form className="stack" onSubmit={(e) => { e.preventDefault(); onSubmit(user); }}>
-      <h2>From AniList</h2>
-      <p className="muted small">Your AniList profile needs to be public for this to work.</p>
-      <div className="row">
-        <input id="anilist-user" className="input" style={{ flex: '1 1 200px' }} placeholder="AniList username" value={user} onChange={(e) => setUser(e.target.value)} />
-        <button className="btn primary" disabled={busy || !user.trim()}>Load list</button>
-      </div>
-    </form>
-  );
-}
-
-function TextForm({ busy, onSubmit }) {
-  const [text, setText] = useState('');
-  const [kind, setKind] = useState('anime');
-  return (
-    <form className="stack" onSubmit={(e) => { e.preventDefault(); onSubmit(text, kind); }}>
-      <h2>Paste titles</h2>
-      <p className="muted small">
-        One title per line. Add a status or episode count after a <span className="mono">|</span> if you like:
-        <br />
-        <span className="mono">Naruto Shippuden | completed</span> · <span className="mono">Jujutsu Kaisen | watching | 14</span> ·{' '}
-        <span className="mono">Frieren | plan</span>. Lines without a status are saved as Completed.
-      </p>
-      <div className="seg">
-        <button type="button" className={kind === 'anime' ? 'on' : ''} onClick={() => setKind('anime')}>These are anime</button>
-        <button type="button" className={kind === 'other' ? 'on' : ''} onClick={() => setKind('other')}>Movies, series or dramas</button>
-      </div>
-      <textarea id="titles" className="textarea mono" style={{ minHeight: 180 }} value={text} onChange={(e) => setText(e.target.value)} placeholder={'Death Note\nAttack on Titan | completed\nOne Piece | watching | 1100'} />
-      <div className="row">
-        <button className="btn primary" disabled={busy || !text.trim()}>Find these titles</button>
-        <span className="small muted">Anime lookups take about a second each.</span>
-      </div>
-    </form>
-  );
-}
-

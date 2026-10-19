@@ -1,104 +1,127 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { searchAll } from '@/lib/catalog';
-import { useList } from '@/components/useList';
-import { TitleCard } from '@/components/PosterCard';
-import { CATEGORIES } from '@/lib/categories';
+import { useEffect, useRef, useState } from 'react';
+import { searchCatalog } from '@/lib/catalog';
+import { TitleTile } from '@/components/Tiles';
+import { viewMemory } from '@/lib/store';
 
 const TYPES = [
   { id: 'all', label: 'Everything' },
-  { id: 'anime', label: 'Anime' },
   { id: 'movie', label: 'Movies' },
   { id: 'tv', label: 'Series & dramas' },
+  { id: 'anime', label: 'Anime' },
 ];
 
 export default function SearchPage() {
-  const [q, setQ] = useState('');
-  const [type, setType] = useState('all');
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const { lookup } = useList();
-  const reqId = useRef(0);
+  const mem = viewMemory.get('search') || {};
+  const [q, setQ] = useState(mem.q || '');
+  const [type, setType] = useState(mem.type || 'all');
+  const [year, setYear] = useState(mem.year || '');
+  const [results, setResults] = useState(mem.results || null);
+  const [suggestion, setSuggestion] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const req = useRef(0);
 
   useEffect(() => {
     const term = q.trim();
+    const id = ++req.current;
     if (term.length < 2) {
-      reqId.current++;
-      setResult(null);
-      setLoading(false);
+      setResults(null);
+      setSuggestion(null);
+      setBusy(false);
       return;
     }
-    const id = ++reqId.current;
-    setLoading(true);
+    setBusy(true);
     const t = setTimeout(async () => {
-      const r = await searchAll(term);
-      if (id === reqId.current) {
-        setResult(r);
-        setLoading(false);
+      try {
+        const items = await searchCatalog(term, { type, year: year || undefined });
+        if (id !== req.current) return;
+        setResults(items);
+        setError(null);
+        // Typo? Ask the matcher for its best guess.
+        if (items.length < 3 || !items.some((i) => norm(i.title).includes(norm(term)))) {
+          fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ id: 's', q: term, kind: type === 'all' ? 'any' : type, year: year || null }] }) })
+            .then((r) => r.json())
+            .then((d) => {
+              const r = d.results?.[0];
+              const best = r?.best;
+              if (id === req.current && best && r.confidence >= 0.5 && !items.some((i) => i.sourceId === best.sourceId)) setSuggestion(best);
+              else if (id === req.current) setSuggestion(null);
+            })
+            .catch(() => {});
+        } else setSuggestion(null);
+      } catch (e) {
+        if (id === req.current) setError(e.message);
+      } finally {
+        if (id === req.current) setBusy(false);
       }
-    }, 400);
+    }, 300);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, type, year]);
 
-  const shown = useMemo(() => {
-    if (!result) return [];
-    return result.items.filter((i) => type === 'all' || i.mediaType === type);
-  }, [result, type]);
+  useEffect(() => viewMemory.set('search', { q, type, year, results }), [q, type, year, results]);
 
-  // Count results per shelf so you can see e.g. how many K-Dramas matched
-  const catCounts = useMemo(() => {
-    const m = {};
-    for (const i of shown) m[i.category] = (m[i.category] || 0) + 1;
-    return CATEGORIES.filter((c) => m[c.id]).map((c) => `${c.label} ${m[c.id]}`);
-  }, [shown]);
+  const years = Array.from({ length: new Date().getFullYear() - 1949 }, (_, i) => new Date().getFullYear() - i);
 
   return (
     <>
-      <div className="stack">
-        <h1>Search</h1>
+      <header className="stack">
+        <h1 className="h-page">Search</h1>
         <input
           id="search"
-          className="input"
-          style={{ fontSize: '1.05rem', padding: '12px 14px' }}
-          placeholder="Anime, movies, K-dramas, Turkish dramas…"
+          className="input search-input"
+          type="search"
+          placeholder="Movies, series, anime, dramas"
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          autoComplete="off"
         />
-        <div className="chips">
-          {TYPES.map((t) => (
-            <button key={t.id} className={`chip ${type === t.id ? 'on' : ''}`} onClick={() => setType(t.id)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {result?.errors?.map((e) => (
-        <div key={e} className="notice error">{e}</div>
-      ))}
-
-      {loading && <p className="muted">Searching…</p>}
-
-      {!loading && result && (
-        <>
-          <p className="muted small">
-            {shown.length} results{catCounts.length ? ` · ${catCounts.join(' · ')}` : ''}
-          </p>
-          <div className="grid">
-            {shown.map((item) => (
-              <TitleCard key={`${item.source}-${item.mediaType}-${item.sourceId}`} item={item} entry={lookup(item)} />
+        <div className="toolbar">
+          <div className="chips">
+            {TYPES.map((t) => (
+              <button key={t.id} className={`chip ${type === t.id ? 'on' : ''}`} onClick={() => setType(t.id)}>
+                {t.label}
+              </button>
             ))}
           </div>
-        </>
+          <select id="search-year" className="select" value={year} onChange={(e) => setYear(e.target.value)} aria-label="Release year">
+            <option value="">Any year</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </div>
+      </header>
+
+      {error && <p className="notice error">{error}</p>}
+
+      {suggestion && (
+        <div className="stack-sm">
+          <p className="muted">Did you mean</p>
+          <div className="grid-posters">
+            <TitleTile item={suggestion} />
+          </div>
+        </div>
       )}
 
-      {!result && !loading && (
-        <p className="muted">
-          Type at least two letters. Movies, series and dramas come from TMDB; anime comes from AniList. Both update every day.
-        </p>
+      {results && (
+        <div className="stack">
+          {!busy && <p className="muted small">{results.length ? `${results.length} results` : 'No matches. Check the spelling, or try the original title.'}</p>}
+          <div className="grid-posters">
+            {results.map((i) => (
+              <TitleTile key={`${i.source}-${i.mediaType}-${i.sourceId}`} item={i} />
+            ))}
+          </div>
+        </div>
       )}
+
+      {!results && !busy && <p className="muted">Every movie and series on TMDB, plus anime from AniList. Titles you have already added show a badge.</p>}
     </>
   );
 }
+
+const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');

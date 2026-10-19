@@ -1,6 +1,6 @@
 {
   "name": "watchvault",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Personal tracker for anime, movies, series and world dramas, backed by live TMDB and AniList data.",
   "scripts": {
@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
+    "mammoth": "^1.8.0",
     "next": "^15.3.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "xlsx": "^0.18.5"
   }
 }

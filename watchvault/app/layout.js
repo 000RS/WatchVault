@@ -2,9 +2,9 @@ import './globals.css';
 import AppShell from '@/components/AppShell';
 
 export const metadata = {
-  title: 'WatchVault',
-  description: 'Everything you have watched: anime, movies, series and dramas from around the world.',
-  appleWebApp: { capable: true, title: 'WatchVault', statusBarStyle: 'default' },
+  title: { default: 'WatchVault', template: '%s · WatchVault' },
+  description: 'Everything you have watched: movies, series, anime and dramas from every country, tracked down to the episode.',
+  appleWebApp: { capable: true, title: 'WatchVault', statusBarStyle: 'black-translucent' },
 };
 
 export const viewport = {
@@ -12,8 +12,8 @@ export const viewport = {
   initialScale: 1,
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#eef0f5' },
-    { media: '(prefers-color-scheme: dark)', color: '#0f1118' },
+    { media: '(prefers-color-scheme: light)', color: '#f5f5f7' },
+    { media: '(prefers-color-scheme: dark)', color: '#000000' },
   ],
 };
 
@@ -23,10 +23,8 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap"
-        />
+        <link rel="preconnect" href="https://image.tmdb.org" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" />
       </head>
       <body>
         <AppShell>{children}</AppShell>

@@ -1,77 +1,85 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useList } from '@/components/useList';
-import { computeStats } from '@/lib/stats';
+import { useEntries } from '@/lib/store';
+import { completionRankings, computeStats } from '@/lib/stats';
 import { STATUS_LABEL } from '@/lib/categories';
-import { titleHref } from '@/components/PosterCard';
 
-let regionNames = null;
-function countryName(code) {
+const region = (code) => {
   try {
-    regionNames ||= new Intl.DisplayNames(['en'], { type: 'region' });
-    return regionNames.of(code);
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code);
   } catch {
     return code;
   }
-}
-
-const fmt = (n) => Math.round(n).toLocaleString('en');
+};
+const fmt = (n) => Math.round(n).toLocaleString();
 
 export default function StatsPage() {
-  const { entries, error } = useList();
+  const { entries } = useEntries();
+  const [benchmarks, setBenchmarks] = useState(null);
   const s = useMemo(() => (entries ? computeStats(entries) : null), [entries]);
 
-  if (error) return <div className="notice error">Couldn&apos;t load your list: {error}</div>;
-  if (!s) return <p className="muted">Loading…</p>;
-  if (s.total === 0) {
+  useEffect(() => {
+    fetch('/api/benchmarks')
+      .then((r) => r.json())
+      .then((d) => setBenchmarks(d.benchmarks || []))
+      .catch(() => setBenchmarks([]));
+  }, []);
+
+  const ranks = useMemo(() => (entries && benchmarks ? completionRankings(entries, benchmarks) : null), [entries, benchmarks]);
+
+  if (!s) return <div className="skeleton" style={{ height: 300, aspectRatio: 'auto' }} />;
+  if (!s.total)
     return (
-      <div className="center">
-        <div className="stack" style={{ maxWidth: 420 }}>
-          <h1>No stats yet</h1>
-          <p className="muted">Add a few titles you&apos;ve watched and your dashboard fills in.</p>
-          <div className="row" style={{ justifyContent: 'center' }}>
-            <Link href="/search" className="btn primary">Search titles</Link>
-            <Link href="/import" className="btn">Import anime list</Link>
-          </div>
-        </div>
+      <div className="empty">
+        <h1 className="h-page">No stats yet</h1>
+        <p className="lede">Add what you&apos;ve watched and your numbers fill in here.</p>
+        <Link href="/import" className="btn primary">
+          Import a list
+        </Link>
       </div>
     );
-  }
 
-  const days = s.hours / 24;
-  const breakdown = s.byCategory.map((c) => `${c.count} ${c.label.toLowerCase()}`).join(', ');
+  const yearsShown = s.years.filter((y) => y.year >= new Date().getFullYear() - 29);
+  const yearMax = Math.max(1, ...yearsShown.map((y) => y.count));
+  const peakYear = yearsShown.reduce((a, b) => (b.count > (a?.count || 0) ? b : a), null);
+  const catMax = Math.max(1, ...s.byCategory.map((c) => c.count));
 
   return (
     <>
-      <div className="stack" style={{ gap: 6 }}>
-        <span className="tag">Your watching, in numbers</span>
-        <h1>
-          You&apos;ve watched <span style={{ color: 'var(--accent)' }}>{fmt(s.watchedCount)}</span> titles
-        </h1>
-        {breakdown && <p className="muted">{breakdown}.</p>}
-      </div>
+      <header className="page-head">
+        <div>
+          <h1 className="h-page">Stats</h1>
+          <p className="lede">
+            {s.watchedCount.toLocaleString()} titles watched:{' '}
+            {[...s.byCategory]
+              .sort((a, b) => b.count - a.count)
+              .map((c) => `${c.count} ${c.label.toLowerCase()}`)
+              .join(', ')}
+            .
+          </p>
+        </div>
+      </header>
 
       <div className="kpis">
-        <Kpi value={fmt(s.hours)} unit="hours" note={days >= 1 ? `about ${days.toFixed(1)} days` : 'and counting'} />
-        <Kpi value={fmt(s.episodes)} unit="episodes" note="across anime and series" />
-        <Kpi value={fmt(s.moviesFinished)} unit="movies" note="finished" />
-        <Kpi value={fmt(s.countries.length)} unit="countries" note="of origin" />
-        <Kpi value={s.avgRating != null ? s.avgRating.toFixed(1) : '—'} unit="avg rating" note={s.ratedCount ? `from ${s.ratedCount} ratings` : 'rate titles to see this'} />
+        <Kpi v={fmt(s.hours)} l="hours" n={s.hours >= 24 ? `about ${(s.hours / 24).toFixed(1)} days` : 'of watching'} />
+        <Kpi v={fmt(s.episodes)} l="episodes" n="across every series" />
+        <Kpi v={fmt(s.moviesFinished)} l="movies" n="watched to the end" />
+        <Kpi v={s.countries.length} l={s.countries.length === 1 ? 'country' : 'countries'} n="stories come from" />
+        <Kpi v={s.avgRating != null ? s.avgRating.toFixed(1) : '–'} l="average rating" n={s.ratedCount ? `from ${s.ratedCount} ratings` : 'rate titles to see this'} />
       </div>
 
       <section className="panel persona">
-        <span className="tag">Your viewer personality · just for fun</span>
-        <h2 className="persona-name">{s.personality.name}</h2>
-        <p style={{ maxWidth: '62ch' }}>{s.personality.blurb}</p>
+        <h3>{s.personality.name}</h3>
+        <p className="lede">{s.personality.blurb}</p>
+        {s.taste && <p>{s.taste}</p>}
         {s.personality.traits.length > 0 && (
           <div className="traits">
             {s.personality.traits.map((t) => (
-              <div key={t.label} className="trait">
+              <span key={t.label} className="trait" title={t.text}>
                 <b>{t.label}</b>
-                <span className="small muted">{t.text}</span>
-              </div>
+              </span>
             ))}
           </div>
         )}
@@ -79,40 +87,166 @@ export default function StatsPage() {
 
       <div className="dash">
         <section className="panel">
-          <h2>What you watch</h2>
-          <Donut data={s.byCategory} total={s.watchedCount} />
+          <h2 className="h-sub">What you watch</h2>
+          <ul className="bars">
+            {[...s.byCategory]
+              .sort((a, b) => b.count - a.count)
+              .map((c) => (
+                <li key={c.id}>
+                  <div className="spread small">
+                    <span>{c.label}</span>
+                    <span className="muted num">
+                      {c.count}, {Math.round((c.count / s.watchedCount) * 100)}%
+                    </span>
+                  </div>
+                  <div className="bar">
+                    <i style={{ width: `${(c.count / catMax) * 100}%` }} />
+                  </div>
+                </li>
+              ))}
+          </ul>
         </section>
 
         <section className="panel">
-          <h2>Status</h2>
-          <Bars
-            data={s.byStatus.filter((x) => x.count).map((x) => ({ key: x.id, label: STATUS_LABEL[x.id], count: x.count, color: `var(--${x.id})` }))}
-            total={s.total}
-          />
+          <h2 className="h-sub">By release year</h2>
+          {yearsShown.length ? (
+            <>
+              <div className="cols" role="img" aria-label="Titles watched by release year, last 30 years">
+                {yearsShown.map((y) => (
+                  <div key={y.year} title={`${y.year}: ${y.count}`}>
+                    <i className={y === peakYear ? 'peak' : ''} style={{ height: `${(y.count / yearMax) * 100}%` }} />
+                  </div>
+                ))}
+              </div>
+              <div className="spread small muted num">
+                <span>{yearsShown[0].year}</span>
+                <span>Peak: {peakYear?.year} ({peakYear?.count})</span>
+                <span>{yearsShown[yearsShown.length - 1].year}</span>
+              </div>
+            </>
+          ) : (
+            <p className="muted small">Years appear once titles have release dates.</p>
+          )}
+          <ul className="bars">
+            {s.decades.map((d) => (
+              <li key={d.label}>
+                <div className="spread small">
+                  <span>{d.label}</span>
+                  <span className="muted num">{Math.round((d.count / s.watchedCount) * 100)}%</span>
+                </div>
+                <div className="bar">
+                  <i style={{ width: `${(d.count / Math.max(...s.decades.map((x) => x.count))) * 100}%` }} />
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
+
+        <section className="panel">
+          <h2 className="h-sub">Status</h2>
+          <ul className="bars">
+            {s.byStatus
+              .filter((x) => x.count)
+              .map((x) => (
+                <li key={x.id}>
+                  <div className="spread small">
+                    <span>
+                      <span className={`dot st-${x.id}`} />
+                      {STATUS_LABEL[x.id]}
+                    </span>
+                    <span className="muted num">{x.count}</span>
+                  </div>
+                  <div className="bar">
+                    <i style={{ width: `${(x.count / s.total) * 100}%`, background: `var(--${x.id})` }} />
+                  </div>
+                </li>
+              ))}
+          </ul>
+        </section>
+
+        {s.genres.length > 0 && (
+          <section className="panel">
+            <h2 className="h-sub">Genres</h2>
+            <ul className="bars">
+              {s.genres.slice(0, 8).map((g) => (
+                <li key={g.name}>
+                  <div className="spread small">
+                    <span>{g.name}</span>
+                    <span className="muted num">{g.count}</span>
+                  </div>
+                  <div className="bar">
+                    <i style={{ width: `${(g.count / s.genres[0].count) * 100}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {s.countries.length > 0 && (
           <section className="panel">
-            <h2>Where it&apos;s from</h2>
-            <Bars data={s.countries.slice(0, 7).map((c) => ({ key: c.code, label: countryName(c.code), count: c.count }))} total={s.watchedCount} />
+            <h2 className="h-sub">Where it&apos;s from</h2>
+            <ul className="bars">
+              {s.countries.slice(0, 8).map((c) => (
+                <li key={c.code}>
+                  <div className="spread small">
+                    <span>{region(c.code)}</span>
+                    <span className="muted num">{c.count}</span>
+                  </div>
+                  <div className="bar">
+                    <i style={{ width: `${(c.count / s.countries[0].count) * 100}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 
-        {s.decades.length > 0 && (
-          <section className="panel">
-            <h2>Release decade</h2>
-            <Bars data={s.decades.map((d) => ({ key: d.label, label: d.label, count: d.count }))} total={s.watchedCount} />
-          </section>
-        )}
+        <section className="panel">
+          <h2 className="h-sub">How much of the canon you&apos;ve seen</h2>
+          <p className="muted small">Each list is the best-known titles of its kind, refreshed daily.</p>
+          {!ranks ? (
+            <div className="skeleton" style={{ height: 160, aspectRatio: 'auto' }} />
+          ) : ranks.length === 0 ? (
+            <p className="muted small">Rankings are unavailable right now.</p>
+          ) : (
+            <div className="bench">
+              {[...ranks]
+                .sort((a, b) => b.pct - a.pct)
+                .map((r) => (
+                  <div key={r.id} className="bench-row">
+                    <div className="spread small">
+                      <span>{r.label}</span>
+                      <span className="row" style={{ gap: 8 }}>
+                        <span className="muted num">
+                          {r.watched}/{r.total}
+                        </span>
+                        <span className={`tier ${r.tier}`}>{r.tier}</span>
+                      </span>
+                    </div>
+                    <div className="bar">
+                      <i style={{ width: `${Math.max(r.pct, 0.5)}%`, background: 'var(--accent)' }} />
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+          {entries.some((e) => e.source === 'anilist') && (
+            <p className="hint">
+              Anime saved from AniList doesn&apos;t count here yet. <Link href="/settings" className="link">Link them to TMDB</Link> in Settings.
+            </p>
+          )}
+        </section>
 
         {s.topRated.length > 0 && (
           <section className="panel">
-            <h2>Your highest rated</h2>
-            <ol className="toplist">
-              {s.topRated.map((e) => (
-                <li key={e.id}>
-                  <Link href={titleHref(e.source, e.media_type, e.source_id)}>{e.title}</Link>
-                  <span className="mono">★ {Number(e.rating)}</span>
+            <h2 className="h-sub">Your highest rated</h2>
+            <ol className="ranked">
+              {s.topRated.map((e, i) => (
+                <li key={e.id} className="rank-row" style={{ gridTemplateColumns: '34px minmax(0,1fr) auto' }}>
+                  <span className="rank-num">{i + 1}</span>
+                  <span className="rank-title">{e.title}</span>
+                  <span className="muted num">{Number(e.rating)}/10</span>
                 </li>
               ))}
             </ol>
@@ -123,81 +257,12 @@ export default function StatsPage() {
   );
 }
 
-function Kpi({ value, unit, note }) {
+function Kpi({ v, l, n }) {
   return (
     <div className="kpi">
-      <div className="kpi-value mono">{value}</div>
-      <div className="kpi-unit">{unit}</div>
-      <div className="small muted">{note}</div>
+      <span className="kpi-v">{v}</span>
+      <span className="kpi-l">{l}</span>
+      <span className="muted small">{n}</span>
     </div>
-  );
-}
-
-function Donut({ data, total }) {
-  const r = 70;
-  const c = 2 * Math.PI * r;
-  let offset = 0;
-  const top = data.reduce((a, b) => (b.count > a.count ? b : a), data[0]);
-  return (
-    <div className="donut-wrap">
-      <svg viewBox="0 0 200 200" className="donut" role="img" aria-label="Share of watched titles by shelf">
-        <circle cx="100" cy="100" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="26" />
-        {data.map((d) => {
-          const len = (d.count / total) * c;
-          const seg = (
-            <circle
-              key={d.id}
-              cx="100"
-              cy="100"
-              r={r}
-              fill="none"
-              stroke={`var(--c-${d.id})`}
-              strokeWidth="26"
-              strokeDasharray={`${Math.max(len - 1.5, 0.5)} ${c}`}
-              strokeDashoffset={-offset}
-              transform="rotate(-90 100 100)"
-            />
-          );
-          offset += len;
-          return seg;
-        })}
-        {top && (
-          <>
-            <text x="100" y="96" textAnchor="middle" className="donut-big">{Math.round((top.count / total) * 100)}%</text>
-            <text x="100" y="118" textAnchor="middle" className="donut-small">{top.label}</text>
-          </>
-        )}
-      </svg>
-      <ul className="legend">
-        {data.map((d) => (
-          <li key={d.id}>
-            <i style={{ background: `var(--c-${d.id})` }} />
-            <span>{d.label}</span>
-            <span className="mono muted">{d.count} · {Math.round((d.count / total) * 100)}%</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function Bars({ data, total }) {
-  const max = Math.max(...data.map((d) => d.count), 1);
-  return (
-    <ul className="hbars">
-      {data.map((d) => (
-        <li key={d.key}>
-          <div className="spread small">
-            <span>{d.label}</span>
-            <span className="mono muted">
-              {d.count} · {Math.round((d.count / Math.max(total, 1)) * 100)}%
-            </span>
-          </div>
-          <div className="hbar">
-            <i style={{ width: `${(d.count / max) * 100}%`, background: d.color || 'var(--accent)' }} />
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }

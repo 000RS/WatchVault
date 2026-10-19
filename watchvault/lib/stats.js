@@ -19,7 +19,7 @@ export function minutesWatched(e) {
     if (e.movie_minutes_watched) return e.movie_minutes_watched;
     return ((e.runtime || 120) * pct) / 100;
   }
-  return (e.episodes_watched || 0) * (e.runtime || DEFAULT_EP_MIN[e.media_type] || 40);
+  return (e.episodes_watched || 0) * (e.runtime || (e.category === 'anime' ? DEFAULT_EP_MIN.anime : DEFAULT_EP_MIN.tv));
 }
 
 export function computeStats(entries) {
@@ -54,6 +54,16 @@ export function computeStats(entries) {
     .map(([d, count]) => ({ label: `${d}s`, count, d: Number(d) }))
     .sort((a, b) => a.d - b.d);
 
+  const yearCounts = {};
+  for (const e of watched) if (e.year) yearCounts[e.year] = (yearCounts[e.year] || 0) + 1;
+  const years = Object.entries(yearCounts).map(([y, count]) => ({ year: Number(y), count })).sort((a, b) => a.year - b.year);
+  const peakYear = years.reduce((a, b) => (b.count > (a?.count || 0) ? b : a), null);
+  const peakDecade = decades.reduce((a, b) => (b.count > (a?.count || 0) ? b : a), null);
+
+  const genreCounts = {};
+  for (const e of watched) for (const g of e.genres || []) genreCounts[g] = (genreCounts[g] || 0) + 1;
+  const genres = Object.entries(genreCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+
   const rated = entries.filter((e) => e.rating != null);
   const avgRating = rated.length ? rated.reduce((s, e) => s + Number(e.rating), 0) / rated.length : null;
   const topRated = [...rated].sort((a, b) => b.rating - a.rating || a.title.localeCompare(b.title)).slice(0, 5);
@@ -72,6 +82,9 @@ export function computeStats(entries) {
     moviesFinished,
     countries,
     decades,
+    years,
+    genres,
+    taste: tasteLine({ watched, decades, peakDecade, peakYear, genres }),
     avgRating,
     ratedCount: rated.length,
     topRated,
@@ -143,4 +156,36 @@ function personality({ watched, status, byCategory, countries, avgRating, ratedC
   if (countries.length >= 8) traits.push({ label: 'World traveller', text: `Titles from ${countries.length} different countries.` });
 
   return { name, blurb, traits: traits.slice(0, 4) };
+}
+
+function tasteLine({ watched, peakDecade, peakYear, genres }) {
+  const n = watched.length;
+  if (n < 5 || !peakDecade) return null;
+  const share = Math.round((peakDecade.count / n) * 100);
+  const era =
+    peakDecade.d >= 2020 ? 'You live in the now' : peakDecade.d >= 2010 ? 'You are a 2010s viewer at heart' : peakDecade.d >= 2000 ? 'The 2000s shaped your taste' : peakDecade.d >= 1990 ? 'You have a soft spot for the 90s' : 'You like the classics';
+  const parts = [`${era}: ${share}% of what you've watched came out in the ${peakDecade.label}.`];
+  if (peakYear && peakYear.count >= 3) parts.push(`${peakYear.year} is your biggest single year, with ${peakYear.count} titles.`);
+  if (genres[0]) parts.push(`Your most-watched genre is ${genres[0].name.toLowerCase()}${genres[1] ? `, followed by ${genres[1].name.toLowerCase()}` : ''}.`);
+  return parts.join(' ');
+}
+
+const TIERS = [
+  [75, 'Legend'],
+  [50, 'Expert'],
+  [30, 'Connoisseur'],
+  [15, 'Enthusiast'],
+  [5, 'Explorer'],
+  [0, 'Newcomer'],
+];
+export const tierFor = (pct) => TIERS.find(([min]) => pct >= min)[1];
+
+/** How much of each "canon" list you've seen. */
+export function completionRankings(entries, benchmarks) {
+  const seen = new Set(entries.filter((e) => e.source === 'tmdb' && isWatched(e)).map((e) => `${e.media_type}:${e.source_id}`));
+  return benchmarks.map((b) => {
+    const watched = b.keys.filter((k) => seen.has(k)).length;
+    const pct = Math.round((watched / b.keys.length) * 1000) / 10;
+    return { ...b, watched, total: b.keys.length, pct, tier: tierFor(pct) };
+  });
 }
