@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase, supabaseUrl } from '@/lib/supabase';
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -117,6 +117,12 @@ function SignIn({ sb }) {
           />
         </label>
         {message && <div className={`notice ${message.kind}`}>{message.text}</div>}
+        {message?.kind === 'error' && (
+          <p className="small muted" style={{ overflowWrap: 'anywhere' }}>
+            Database address in use: <span className="mono">{supabaseUrl()}</span>. It should look like
+            https://xxxx.supabase.co with nothing after it.
+          </p>
+        )}
         <button className="btn primary" disabled={busy}>
           {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
         </button>
