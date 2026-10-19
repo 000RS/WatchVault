@@ -39,6 +39,9 @@ function persist() {
   }
 }
 
+/** The current list, for code outside React components. */
+export const getStoreEntries = () => state.entries || [];
+
 export function initStore(userId) {
   if (state.userId === userId && state.entries) return;
   state.userId = userId;
@@ -225,13 +228,42 @@ export function useStore() {
   return useSyncExternalStore(subscribe, () => snapshot, () => serverSnapshot);
 }
 
+const squashTitle = (n) => String(n || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
+
+/** Keys a saved title can be recognised by: its full names, and the part before any subtitle. */
+export function titleKeys(...names) {
+  const out = new Set();
+  for (const n of names) {
+    if (!n) continue;
+    const full = squashTitle(n);
+    if (full.length >= 2) out.add(full);
+    const main = squashTitle(String(n).split(/\s*[:：]\s*|\s[-–—]\s/)[0]);
+    if (main.length >= 4) out.add(main);
+  }
+  return [...out];
+}
+
+/** Full names only, for the title being looked up (so a spin-off doesn't match the main show). */
+const fullKeys = (...names) => names.filter(Boolean).map(squashTitle).filter((k) => k.length >= 2);
+
+/** Find an anime saved from AniList that is the same show as a TMDB title. */
+export function findAnimeTwin(entries, t) {
+  if (!t || t.source !== 'tmdb' || t.category !== 'anime') return undefined;
+  const keys = fullKeys(t.title, t.originalTitle);
+  return (entries || []).find((e) => e.source === 'anilist' && titleKeys(e.title, e.original_title).some((k) => keys.includes(k)));
+}
+
 /** Your list plus fast lookup by title. */
 export function useEntries() {
   const s = useStore();
-  const index = useMemo(() => {
+  const { index, aniByName } = useMemo(() => {
     const m = new Map();
-    for (const e of s.entries || []) m.set(keyOfEntry(e), e);
-    return m;
+    const a = new Map();
+    for (const e of s.entries || []) {
+      m.set(keyOfEntry(e), e);
+      if (e.source === 'anilist') for (const k of titleKeys(e.title, e.original_title)) if (!a.has(k)) a.set(k, e);
+    }
+    return { index: m, aniByName: a };
   }, [s.entries]);
   return {
     entries: s.entries,
@@ -239,7 +271,14 @@ export function useEntries() {
     refreshing: s.refreshing,
     error: s.error,
     index,
-    lookup: (t) => (t ? index.get(`${t.source}:${t.mediaType}:${t.sourceId}`) : undefined),
+    // Exact match first; a TMDB anime also counts as "in your list" if you saved it from AniList.
+    lookup: (t) => {
+      if (!t) return undefined;
+      const exact = index.get(`${t.source}:${t.mediaType}:${t.sourceId}`);
+      if (exact || t.source !== 'tmdb' || t.category !== 'anime' || !aniByName.size) return exact;
+      for (const k of fullKeys(t.title, t.originalTitle)) if (aniByName.has(k)) return aniByName.get(k);
+      return undefined;
+    },
     profile: s.profile,
   };
 }

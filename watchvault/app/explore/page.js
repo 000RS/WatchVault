@@ -6,6 +6,7 @@ import { DECADES, MOVIE_GENRES, TV_GENRES, languageName } from '@/lib/categories
 import { useEntries, hiddenCategories, viewMemory } from '@/lib/store';
 import Shelf from '@/components/Shelf';
 import { TitleTile } from '@/components/Tiles';
+import { Icon } from '@/components/Icons';
 
 const TABS = [
   { id: 'foryou', label: 'For you' },
@@ -15,6 +16,7 @@ const TABS = [
 
 export default function ExplorePage() {
   const [tab, setTab] = useState(viewMemory.get('explore')?.tab || 'foryou');
+  const [round, setRound] = useState(0);
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     if (t && TABS.some((x) => x.id === t)) setTab(t);
@@ -36,6 +38,10 @@ export default function ExplorePage() {
                 : 'Fresh releases, updated every day.'}
           </p>
         </div>
+        <div className="row">
+        <button className="btn sm" onClick={() => setRound((r) => r + 1)} title="Show fresh titles">
+          <Icon.Refresh width={16} height={16} /> Refresh
+        </button>
         <div className="tabs" role="tablist">
           {TABS.map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab-btn ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
@@ -43,22 +49,23 @@ export default function ExplorePage() {
             </button>
           ))}
         </div>
+        </div>
       </header>
-      {tab === 'foryou' && <ForYou />}
-      {tab === 'browse' && <Browse />}
-      {tab === 'new' && <New />}
+      {tab === 'foryou' && <ForYou key={`f${round}`} round={round} />}
+      {tab === 'browse' && <Browse key={`b${round}`} />}
+      {tab === 'new' && <New key={`n${round}`} />}
     </>
   );
 }
 
-function ForYou() {
+function ForYou({ round = 0 }) {
   const { entries, profile } = useEntries();
   const hidden = hiddenCategories(profile);
 
   // Rows are chosen once per visit, so ticking titles never reshuffles the page.
   // Next time you open Explore, they reflect what you just added.
   const plan = useRef(null);
-  if (!plan.current && entries) plan.current = buildPlan(entries, hidden);
+  if (!plan.current && entries) plan.current = buildPlan(entries, hidden, round);
   const rows = plan.current || { seeds: [], languages: [] };
 
   return (
@@ -74,13 +81,15 @@ function ForYou() {
   );
 }
 
-function buildPlan(entries, hidden) {
+function buildPlan(entries, hidden, round = 0) {
   const ok = (i) => !hidden.has(i.category);
   const pool = entries.filter((e) => e.source === 'tmdb' && e.status !== 'plan' && e.status !== 'dropped' && ok(e));
   const recent = [...pool].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
   const loved = [...pool].filter((e) => e.rating != null).sort((a, b) => b.rating - a.rating);
+  // Refresh picks different titles to base rows on, and the next page of suggestions.
+  const shuffled = round ? [...pool].sort(() => Math.random() - 0.5) : [];
   const seeds = [];
-  for (const e of [...recent.slice(0, 3), ...loved.slice(0, 3), ...recent.slice(3)]) {
+  for (const e of round ? shuffled : [...recent.slice(0, 3), ...loved.slice(0, 3), ...recent.slice(3)]) {
     if (seeds.length >= 6) break;
     if (!seeds.includes(e)) seeds.push(e);
   }
@@ -99,18 +108,18 @@ function buildPlan(entries, hidden) {
     .slice(0, 2)
     .map(([k]) => {
       const [code, media] = k.split('|');
-      return { code, media, load: () => bestInLanguage(media, code).then((l) => l.filter(ok)) };
+      return { code, media, load: () => bestInLanguage(media, code, (round % 4) + 1).then((l) => l.filter(ok)) };
     })
     .filter((l) => !(l.code === 'ja' && l.media === 'tv')); // anime has its own rows
 
   return {
     seeds: seeds.map((e) => ({
       e,
-      load: () => similarTitles(e.media_type, e.source_id, { language: e.original_language, genres: e.genres || [] }).then((l) => l.filter(ok)),
+      load: () => similarTitles(e.media_type, e.source_id, { language: e.original_language, genres: e.genres || [], page: (round % 2) + 1 }).then((l) => l.filter(ok)),
     })),
     languages,
     trending: () =>
-      tmdb('trending/all/week').then((d) =>
+      tmdb(round % 2 ? 'trending/all/day' : 'trending/all/week', { page: String((round % 3) + 1) }).then((d) =>
         (d.results || []).filter((r) => r.media_type !== 'person').map((r) => normalizeTmdb(r)).filter((i) => i.poster && ok(i))
       ),
   };

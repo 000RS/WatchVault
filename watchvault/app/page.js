@@ -8,6 +8,7 @@ import { DEFAULT_SECTIONS, EntryRow, TasteCard, TopPodiums, VaultHero } from '@/
 import { ActivityList } from '@/components/ActivityList';
 import { useAuth } from '@/components/AppShell';
 import { toast } from '@/lib/toast';
+import LinkAnimeBanner from '@/components/LinkAnimeBanner';
 
 export default function HomePage() {
   const { user } = useAuth();
@@ -91,6 +92,7 @@ export default function HomePage() {
 
   return (
     <>
+      <LinkAnimeBanner />
       {profile && !profile.username && <UsernamePrompt />}
       <VaultHero
         profile={profile}

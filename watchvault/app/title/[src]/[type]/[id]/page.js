@@ -33,9 +33,10 @@ const language = (code) => {
 export default function TitlePage() {
   const { src, type, id } = useParams();
   const router = useRouter();
-  const { index } = useEntries();
-  const entry = index.get(`${src}:${type}:${id}`);
+  const { index, lookup } = useEntries();
   const [title, setTitle] = useState(null);
+  // The same anime saved from AniList counts as this title too.
+  const entry = index.get(`${src}:${type}:${id}`) || (title ? lookup(title) : undefined);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function TitlePage() {
 
   // New seasons, episodes or posters flow into your saved copy automatically.
   useEffect(() => {
-    if (!title || !entry || String(entry.id).startsWith('tmp-')) return;
+    if (!title || !entry || String(entry.id).startsWith('tmp-') || entry.source !== title.source) return;
     const fresh = snapshotFromTitle(title);
     const changed = SNAPSHOT_KEYS.filter((k) => fresh[k] != null && JSON.stringify(fresh[k]) !== JSON.stringify(entry[k] ?? null));
     if (changed.length) updateEntry(entry.id, Object.fromEntries(changed.map((k) => [k, fresh[k]])), { delay: 0 }).catch(() => {});

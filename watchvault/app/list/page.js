@@ -8,6 +8,7 @@ import { progressFor, toCsv } from '@/lib/list';
 import { EntryTile } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
+import LinkAnimeBanner from '@/components/LinkAnimeBanner';
 
 const SORTS = [
   { id: 'updated', label: 'Recently changed' },
@@ -159,6 +160,8 @@ export default function ListPage() {
           </button>
         </div>
       </header>
+
+      <LinkAnimeBanner />
 
       <div className="stack">
         <div className="chips" aria-label="Shelf">

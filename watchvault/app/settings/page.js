@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
-import { removeEntries, saveProfile, updateEntry, useEntries } from '@/lib/store';
+import { saveProfile, useEntries } from '@/lib/store';
 import { CATEGORIES } from '@/lib/categories';
-import { keyOfEntry, keyOfTitle, progressFor, snapshotFromTitle, toCsv } from '@/lib/list';
+import { toCsv } from '@/lib/list';
 import { DEFAULT_SECTIONS, HOME_SECTIONS } from '@/components/Vault';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
+import { linkAnimeToTmdb } from '@/lib/linkAnime';
 
 export default function SettingsPage() {
   const { entries, profile } = useEntries();
@@ -221,52 +222,14 @@ export default function SettingsPage() {
   );
 }
 
-const RANK = { completed: 5, watching: 4, on_hold: 3, dropped: 2, plan: 1 };
-
 function DataTools({ entries }) {
   const [linking, setLinking] = useState(null);
   const ani = entries.filter((e) => e.source === 'anilist');
 
   async function linkAnime() {
     setLinking({ done: 0, total: ani.length });
-    const byKey = new Map(entries.filter((e) => e.source === 'tmdb').map((e) => [keyOfEntry(e), e]));
-    let linked = 0;
-    let kept = 0;
     try {
-      for (let i = 0; i < ani.length; i += 40) {
-        const chunk = ani.slice(i, i + 40);
-        const res = await fetch('/api/match', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: chunk.map((e) => ({ id: e.id, q: e.title, year: e.year, kind: 'anime' })) }),
-        }).then((r) => r.json());
-        for (const r of res.results || []) {
-          const e = chunk.find((x) => x.id === r.id);
-          if (!e || !r.best || r.best.source !== 'tmdb' || r.confidence < 0.8) {
-            kept++;
-            continue;
-          }
-          const key = keyOfTitle(r.best);
-          const row = {
-            ...snapshotFromTitle(r.best),
-            category: 'anime',
-            ...progressFor(r.best, { status: e.status, episodes: e.episodes_watched }),
-          };
-          const existing = byKey.get(key);
-          if (existing) {
-            // Several AniList seasons can be one TMDB show: keep the furthest progress.
-            if ((RANK[row.status] || 0) > (RANK[existing.status] || 0) || (row.episodes_watched || 0) > (existing.episodes_watched || 0)) {
-              await updateEntry(existing.id, { status: row.status, current_season: row.current_season, current_episode: row.current_episode, episodes_watched: row.episodes_watched }, { delay: 0 });
-            }
-            await removeEntries([e.id]);
-          } else {
-            const saved = await updateEntry(e.id, row, { delay: 0 });
-            byKey.set(key, saved || { ...e, ...row });
-          }
-          linked++;
-        }
-        setLinking({ done: Math.min(i + 40, ani.length), total: ani.length });
-      }
+      const { linked, kept } = await linkAnimeToTmdb((done, total) => setLinking({ done, total }));
       toast(`Linked ${linked} anime to TMDB${kept ? `. ${kept} stay on AniList` : ''}.`);
     } catch (e) {
       toast(e.message, { kind: 'error' });

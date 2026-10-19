@@ -4,17 +4,34 @@
 
 import { getTitle } from './catalog';
 import { keyOfTitle, progressFor, snapshotFromTitle } from './list';
-import { saveEntry, updateEntry } from './store';
+import { findAnimeTwin, saveEntry, updateEntry } from './store';
+import { getStoreEntries } from './store';
 import { toast } from './toast';
 import { STATUS_LABEL } from './categories';
 
 /** Add a catalogue title with a status ("completed", "watching" + 50% for a half-watched movie, ...). */
+const RANK = { completed: 5, watching: 4, on_hold: 3, dropped: 2, plan: 1 };
+
 export async function addTitle(title, status = 'completed', extra = {}) {
   const row = {
     ...snapshotFromTitle(title),
     category: title.category,
     ...progressFor(title, { status, ...extra }),
   };
+  // Same anime already saved from AniList: upgrade that entry instead of adding a second copy.
+  const twin = findAnimeTwin(getStoreEntries(), title);
+  if (twin) {
+    try {
+      const keep = (RANK[twin.status] || 0) >= (RANK[row.status] || 0) ? twin.status : row.status;
+      const progress = progressFor(title.detailed ? title : { ...title, mediaType: title.mediaType }, { status: keep, episodes: twin.episodes_watched || extra.episodes });
+      const saved = await updateEntry(twin.id, { ...snapshotFromTitle(title), category: 'anime', ...progress }, { delay: 0 });
+      if (!title.detailed) fillDetails(saved || twin);
+      return saved;
+    } catch (e) {
+      toast(e.message, { kind: 'error' });
+      throw e;
+    }
+  }
   try {
     const saved = await saveEntry(row);
     if (!title.detailed && title.source === 'tmdb') fillDetails(saved);

@@ -167,14 +167,14 @@ export async function getTitle(source, mediaType, id) {
  * Titles like this one. TMDB's recommendations, plus, for anything not in English,
  * well-loved titles in the same language and genres (a Hindi film brings more Hindi films).
  */
-export async function similarTitles(mediaType, id, { language, genres = [] } = {}) {
+export async function similarTitles(mediaType, id, { language, genres = [], page = 1 } = {}) {
   const empty = { results: [] };
   const genreIds = genreIdsFor(genres, mediaType).filter((g) => g !== 18).slice(0, 2);
   const foreign = language && language !== 'en';
   const [rec, same] = await Promise.all([
-    tmdb(`${mediaType}/${id}/recommendations`).catch(() => empty),
+    tmdb(`${mediaType}/${id}/recommendations`, { page: String(page) }).catch(() => empty),
     foreign
-      ? tmdb(`discover/${mediaType}`, { with_original_language: language, sort_by: 'vote_count.desc', ...(genreIds.length ? { with_genres: genreIds.join('|') } : {}) }).catch(() => empty)
+      ? tmdb(`discover/${mediaType}`, { with_original_language: language, sort_by: 'vote_count.desc', page: String(page), ...(genreIds.length ? { with_genres: genreIds.join('|') } : {}) }).catch(() => empty)
       : Promise.resolve(empty),
   ]);
   let recs = (rec.results || []).map((r) => normalizeTmdb(r, mediaType));
@@ -200,8 +200,8 @@ export async function similarTitles(mediaType, id, { language, genres = [] } = {
 }
 
 /** Best-known titles in one language, e.g. Hindi films for someone who watches a lot of them. */
-export async function bestInLanguage(mediaType, language) {
-  const d = await tmdb(`discover/${mediaType}`, { with_original_language: language, sort_by: 'vote_count.desc' });
+export async function bestInLanguage(mediaType, language, page = 1) {
+  const d = await tmdb(`discover/${mediaType}`, { with_original_language: language, sort_by: 'vote_count.desc', page: String(page) });
   return (d.results || []).map((r) => normalizeTmdb(r, mediaType)).filter((i) => i.poster);
 }
 
