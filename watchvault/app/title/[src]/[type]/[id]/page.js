@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getTitle, similarTitles } from '@/lib/catalog';
+import { getTitleFull, similarTitles } from '@/lib/catalog';
+import { Credits, WhereToWatch } from '@/components/TitleExtras';
+import { AddOptions } from '@/components/Tiles';
+import AskPanel, { useAiEnabled } from '@/components/Ask';
 import { CATEGORY_LABEL } from '@/lib/categories';
 import { snapshotFromTitle } from '@/lib/list';
 import { updateEntry, useEntries } from '@/lib/store';
@@ -35,6 +38,9 @@ export default function TitlePage() {
   const router = useRouter();
   const { index, lookup } = useEntries();
   const [title, setTitle] = useState(null);
+  const [full, setFull] = useState(null);
+  const [ask, setAsk] = useState(false);
+  const ai = useAiEnabled();
   // The same anime saved from AniList counts as this title too.
   const entry = index.get(`${src}:${type}:${id}`) || (title ? lookup(title) : undefined);
   const [error, setError] = useState(null);
@@ -42,9 +48,14 @@ export default function TitlePage() {
   useEffect(() => {
     let alive = true;
     setTitle(null);
+    setFull(null);
     setError(null);
-    getTitle(src, type, id)
-      .then((t) => alive && setTitle(t))
+    getTitleFull(src, type, id)
+      .then((f) => {
+        if (!alive) return;
+        setFull(f);
+        setTitle(f.title);
+      })
       .catch((e) => alive && setError(e.message));
     return () => {
       alive = false;
@@ -112,6 +123,19 @@ export default function TitlePage() {
         <div className="stack">
           {view.overview && <p className="overview">{view.overview}</p>}
           {view.genres?.length > 0 && <p className="muted">{view.genres.join(', ')}</p>}
+          {src === 'tmdb' && (
+            <div className="panel">
+              <h2 className="h-sub">Where to watch</h2>
+              {full ? <WhereToWatch providers={full.providers} /> : <div className="skeleton" style={{ height: 52, aspectRatio: 'auto' }} />}
+              {ai && (
+                <button className="btn sm" onClick={() => setAsk(!ask)}>
+                  {ask ? 'Hide the guide' : 'Ask the guide how to watch this'}
+                </button>
+              )}
+            </div>
+          )}
+          {ask && title && <AskPanel starter={`How should I watch ${title.title}${title.year ? ` (${title.year})` : ''}? Tell me where it streams for me, what to watch first if it's part of a bigger story, and anything I should know.`} />}
+          {full && <Credits full={full} />}
           {title?.seasons?.length > 0 && (
             <div className="panel">
               <h2 className="h-sub">Seasons</h2>
@@ -141,47 +165,17 @@ export default function TitlePage() {
         </aside>
       </div>
 
-      {similar && <Shelf title="More like this" load={similar} hideAdded />}
+      {similar && title && <Shelf key={`${src}${type}${id}`} title="More like this" load={() => similarTitles(type, id, { language: title.language, genres: title.genres })} hideAdded />}
     </>
   );
 }
 
 function AddPanel({ title }) {
-  const [busy, setBusy] = useState(false);
   if (!title) return <div className="skeleton" style={{ height: 160, aspectRatio: 'auto' }} />;
-  const add = async (status, extra) => {
-    setBusy(true);
-    try {
-      await addTitle(title, status, extra);
-      toast(`Added ${title.title}`);
-    } catch {
-      /* shown by addTitle */
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <div className="stack">
       <h2 className="h-sub">Add to your list</h2>
-      <div className="stack-sm">
-        <button className="btn primary full" disabled={busy} onClick={() => add('completed')}>
-          I&apos;ve watched it
-        </button>
-        {title.mediaType === 'movie' && (
-          <button className="btn full" disabled={busy} onClick={() => add('watching', { pct: 50 })}>
-            I watched half
-          </button>
-        )}
-        <button className="btn full" disabled={busy} onClick={() => add('watching')}>
-          I&apos;m watching it
-        </button>
-        <button className="btn full" disabled={busy} onClick={() => add('plan')}>
-          Plan to watch
-        </button>
-        <button className="btn ghost full" disabled={busy} onClick={() => add('dropped')}>
-          I started it, then stopped
-        </button>
-      </div>
+      <AddOptions item={title} />
       <p className="hint">You can set the exact season, episode, rating and date after adding.</p>
     </div>
   );

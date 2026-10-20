@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { searchCatalog } from '@/lib/catalog';
+import Link from 'next/link';
+import { searchEverything } from '@/lib/catalog';
 import { TitleTile } from '@/components/Tiles';
 import { viewMemory } from '@/lib/store';
+import { askGuide, useAiEnabled } from '@/components/Ask';
 
 const TYPES = [
   { id: 'all', label: 'Everything' },
@@ -17,40 +19,35 @@ export default function SearchPage() {
   const [q, setQ] = useState(mem.q || '');
   const [type, setType] = useState(mem.type || 'all');
   const [year, setYear] = useState(mem.year || '');
-  const [results, setResults] = useState(mem.results || null);
-  const [suggestion, setSuggestion] = useState(null);
+  const [res, setRes] = useState(mem.res || null);
+  const [aiGuess, setAiGuess] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const ai = useAiEnabled();
   const req = useRef(0);
 
   useEffect(() => {
     const term = q.trim();
     const id = ++req.current;
+    setAiGuess(null);
     if (term.length < 2) {
-      setResults(null);
-      setSuggestion(null);
+      setRes(null);
       setBusy(false);
       return;
     }
     setBusy(true);
     const t = setTimeout(async () => {
       try {
-        const items = await searchCatalog(term, { type, year: year || undefined });
+        const r = await searchEverything(term, { type, year: year || undefined });
         if (id !== req.current) return;
-        setResults(items);
+        setRes(r);
         setError(null);
-        // Typo? Ask the matcher for its best guess.
-        if (items.length < 3 || !items.some((i) => norm(i.title).includes(norm(term)))) {
-          fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ id: 's', q: term, kind: type === 'all' ? 'any' : type, year: year || null }] }) })
-            .then((r) => r.json())
-            .then((d) => {
-              const r = d.results?.[0];
-              const best = r?.best;
-              if (id === req.current && best && r.confidence >= 0.5 && !items.some((i) => i.sourceId === best.sourceId)) setSuggestion(best);
-              else if (id === req.current) setSuggestion(null);
-            })
+        // Still nothing that looks right? Ask the guide what was meant (free, optional).
+        if (ai && r.items.length < 2 && !r.didYouMean) {
+          askGuide({ mode: 'resolve', q: term })
+            .then((d) => id === req.current && d.titles?.length && setAiGuess(d.titles))
             .catch(() => {});
-        } else setSuggestion(null);
+        }
       } catch (e) {
         if (id === req.current) setError(e.message);
       } finally {
@@ -58,11 +55,11 @@ export default function SearchPage() {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [q, type, year]);
+  }, [q, type, year, ai]);
 
   useEffect(() => {
-    viewMemory.set('search', { q, type, year, results });
-  }, [q, type, year, results]);
+    viewMemory.set('search', { q, type, year, res });
+  }, [q, type, year, res]);
 
   const years = Array.from({ length: new Date().getFullYear() - 1949 }, (_, i) => new Date().getFullYear() - i);
 
@@ -70,16 +67,7 @@ export default function SearchPage() {
     <>
       <header className="stack">
         <h1 className="h-page">Search</h1>
-        <input
-          id="search"
-          className="input search-input"
-          type="search"
-          placeholder="Movies, series, anime, dramas"
-          autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          autoComplete="off"
-        />
+        <input id="search" className="input search-input" type="search" placeholder="Titles, actors, directors…" autoFocus value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
         <div className="toolbar">
           <div className="chips">
             {TYPES.map((t) => (
@@ -101,29 +89,55 @@ export default function SearchPage() {
 
       {error && <p className="notice error">{error}</p>}
 
-      {suggestion && (
-        <div className="stack-sm">
-          <p className="muted">Did you mean</p>
-          <div className="grid-posters">
-            <TitleTile item={suggestion} />
-          </div>
+      {res?.didYouMean && (
+        <p className="lede">
+          Showing results for <b>{res.didYouMean}</b>.{' '}
+          <button className="link as-text-link" onClick={() => setQ(res.didYouMean)}>
+            Search that instead
+          </button>
+        </p>
+      )}
+      {aiGuess && (
+        <div className="chips wrap">
+          <span className="muted">Did you mean</span>
+          {aiGuess.map((t) => (
+            <button key={t} className="chip" onClick={() => setQ(t)}>
+              {t}
+            </button>
+          ))}
         </div>
       )}
 
-      {results && (
-        <div className="stack">
-          {!busy && <p className="muted small">{results.length ? `${results.length} results` : 'No matches. Check the spelling, or try the original title.'}</p>}
+      {res?.people?.length > 0 && (
+        <section className="section">
+          <h2 className="h-section">People</h2>
+          <div className="people-grid">
+            {res.people.map((p) => (
+              <Link key={p.id} href={`/person/${p.id}`} className="person-card">
+                <span className="cast-photo">{p.photo ? <img src={p.photo} alt="" loading="lazy" /> : <span>{p.name[0]}</span>}</span>
+                <span className="person-card-text">
+                  <b>{p.name}</b>
+                  <span className="muted small">{[p.dept === 'Acting' ? 'Actor' : p.dept, p.knownFor.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {res && (
+        <section className="section">
+          {res.people?.length > 0 && <h2 className="h-section">Titles</h2>}
+          {!busy && !res.items.length && <p className="muted">No titles match. Try another spelling, the original-language title, or an actor&apos;s name.</p>}
           <div className="grid-posters">
-            {results.map((i) => (
+            {res.items.map((i) => (
               <TitleTile key={`${i.source}-${i.mediaType}-${i.sourceId}`} item={i} />
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {!results && !busy && <p className="muted">Every movie and series on TMDB, plus anime from AniList. Titles you have already added show a badge.</p>}
+      {!res && !busy && <p className="muted">Every movie and series, in every language, plus anime and the people who make them. Spelling doesn&apos;t have to be perfect.</p>}
     </>
   );
 }
-
-const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');

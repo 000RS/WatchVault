@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CATEGORIES, STATUSES, episodesUpTo, seasonsFinished } from '@/lib/categories';
+import { CATEGORIES, STATUSES, STATUS_LABEL, episodesUpTo, seasonsFinished, suggestStatus } from '@/lib/categories';
 import { progressFor } from '@/lib/list';
 import { removeEntries, updateEntry } from '@/lib/store';
 import { fillDetails } from '@/lib/actions';
@@ -96,6 +96,15 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
             </button>
           ))}
         </div>
+        <p className="hint">{STATUSES.find((x) => x.id === entry.status)?.hint}</p>
+        {suggestStatus(entry) && (
+          <p className="hint">
+            {suggestStatus(entry) === 'tried' ? 'Only a few episodes in.' : 'You got through a full season or more.'}{' '}
+            <button className="link as-text-link" onClick={() => setStatus(suggestStatus(entry))}>
+              Mark as {STATUS_LABEL[suggestStatus(entry)]}
+            </button>
+          </p>
+        )}
       </div>
 
       {isMovie && (

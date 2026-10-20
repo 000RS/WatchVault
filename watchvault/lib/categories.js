@@ -4,6 +4,7 @@ export const CATEGORIES = [
   { id: 'movies', label: 'Movies', short: 'Movie' },
   { id: 'series', label: 'Series', short: 'Series' },
   { id: 'anime', label: 'Anime', short: 'Anime' },
+  { id: 'animation', label: 'Animation', short: 'Animation' },
   { id: 'kdrama', label: 'K-Drama', short: 'K-Drama' },
   { id: 'turkish', label: 'Turkish drama', short: 'Turkish' },
   { id: 'indian', label: 'Indian', short: 'Indian' },
@@ -15,7 +16,7 @@ export const CATEGORIES = [
 ];
 /** "4 movies, 2 K-Dramas": shelf names as they read mid-sentence. */
 const COUNT_WORDS = {
-  movies: ['movie', 'movies'], series: ['series', 'series'], anime: ['anime', 'anime'], other: ['other title', 'other titles'],
+  movies: ['movie', 'movies'], series: ['series', 'series'], anime: ['anime', 'anime'], animation: ['animated title', 'animated titles'], other: ['other title', 'other titles'],
   kdrama: ['K-Drama', 'K-Dramas'], turkish: ['Turkish drama', 'Turkish dramas'], indian: ['Indian title', 'Indian titles'],
   pakistani: ['Pakistani drama', 'Pakistani dramas'], cdrama: ['C-Drama', 'C-Dramas'], jdrama: ['J-Drama', 'J-Dramas'], thai: ['Thai drama', 'Thai dramas'],
 };
@@ -28,12 +29,19 @@ export const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.
 export const CATEGORY_SHORT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.short]));
 
 export const STATUSES = [
-  { id: 'completed', label: 'Completed' },
-  { id: 'watching', label: 'Watching' },
-  { id: 'plan', label: 'Plan to watch' },
-  { id: 'on_hold', label: 'On hold' },
-  { id: 'dropped', label: 'Dropped' },
+  { id: 'completed', label: 'Completed', hint: 'Watched to the end' },
+  { id: 'watching', label: 'Watching', hint: 'Watching it now' },
+  { id: 'plan', label: 'Plan to watch', hint: 'On your watchlist' },
+  { id: 'on_hold', label: 'On hold', hint: 'Paused, you mean to come back' },
+  { id: 'stopped', label: 'Stopped', hint: 'Watched a good part, then stopped' },
+  { id: 'tried', label: 'Tried', hint: 'Watched a few episodes to see' },
+  { id: 'dropped', label: 'Dropped', hint: "Gave it a chance, didn't like it" },
+  { id: 'clips', label: 'Seen clips', hint: 'Know it from reels, TikTok or YouTube' },
 ];
+/** Statuses that mean you actually started watching. */
+export const STARTED = new Set(['completed', 'watching', 'on_hold', 'stopped', 'tried', 'dropped']);
+/** Statuses that are an ending other than finishing. */
+export const UNFINISHED = new Set(['on_hold', 'stopped', 'tried', 'dropped']);
 export const STATUS_LABEL = Object.fromEntries(STATUSES.map((s) => [s.id, s.label]));
 
 // TMDB genre ids are fixed, so a static map saves a request.
@@ -81,6 +89,7 @@ export function categorize({ source, mediaType, countries = [], language, genreI
   const c = new Set((countries || []).map((x) => String(x).toUpperCase()));
   const animated = genreIds.includes(ANIMATION);
   if (animated && (c.has('JP') || language === 'ja')) return 'anime';
+  if (animated) return 'animation';
   if (mediaType === 'movie') return 'movies';
   if (c.has('KR') || language === 'ko') return 'kdrama';
   if (c.has('TR') || language === 'tr') return 'turkish';
@@ -124,6 +133,8 @@ export function seasonsFinished(e) {
 
 export function progressLabel(e) {
   if (!e) return '';
+  if (e.status === 'clips') return 'Seen clips';
+  if (e.status === 'plan') return 'Not started';
   if (e.media_type === 'movie') {
     const pct = e.status === 'completed' ? 100 : e.movie_progress_pct ?? 0;
     if (pct >= 100) return 'Finished';
@@ -139,15 +150,33 @@ export function progressLabel(e) {
     return `Season ${e.current_season}, episode ${e.current_episode || 0}`;
   }
   const w = e.episodes_watched ?? 0;
-  if (!w) return e.status === 'plan' ? 'Not started' : 'No episodes logged';
+  if (!w) return 'No episodes logged';
+  if ((e.status === 'stopped' || e.status === 'on_hold') && e.current_season && (e.current_episode || 0) >= (e.season_episode_counts?.[e.current_season - 1] || Infinity))
+    return `Stopped after season ${e.current_season}`;
   return e.total_episodes ? `${w} of ${e.total_episodes} episodes` : `${w} episodes`;
 }
 
 export function completionPct(e) {
   if (e.status === 'completed') return 100;
+  if (e.status === 'clips' || e.status === 'plan') return null;
   if (e.media_type === 'movie') return e.movie_progress_pct ?? 0;
   if (!e.total_episodes) return null;
   return Math.min(100, Math.round(((e.episodes_watched || 0) / e.total_episodes) * 100));
 }
 
 export const DECADES = [2020, 2010, 2000, 1990, 1980, 1970, 1960, 1950];
+
+/**
+ * A better status for a title you marked dropped, from how far you got:
+ * a few episodes is a try-out, a full season or more is a stop, anything between stays dropped.
+ */
+export function suggestStatus(e) {
+  if (e.status !== 'dropped' && e.status !== 'on_hold') return null;
+  if (e.media_type === 'movie') return null;
+  const eps = e.episodes_watched || 0;
+  if (eps <= 4) return e.status === 'dropped' ? 'tried' : null;
+  const done = seasonsFinished(e) || 0;
+  if (done >= 1 && e.status === 'dropped') return 'stopped';
+  if (!e.season_episode_counts?.length && eps >= 12 && e.status === 'dropped') return 'stopped';
+  return null;
+}

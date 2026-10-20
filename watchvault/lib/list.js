@@ -143,7 +143,9 @@ export async function deleteRows(ids) {
 
 function friendly(error) {
   const m = error.message || '';
-  if (/column .* does not exist|schema cache/i.test(m)) return 'The database needs the v2 upgrade. Run supabase/upgrade_v2.sql in Supabase (see README).';
+  if (/column .* does not exist|schema cache/i.test(m)) return 'The database needs an upgrade. Run supabase/upgrade_v2.sql and upgrade_v3.sql in Supabase (see README).';
+  if (/entries_status_check|violates check constraint/i.test(m)) return 'The new statuses need the v3 database upgrade. Run supabase/upgrade_v3.sql in Supabase (see README).';
+  if (/duplicate key/i.test(m)) return 'This title is already in your list.';
   if (/JWT|token/i.test(m)) return 'Your session expired. Sign in again.';
   return m;
 }

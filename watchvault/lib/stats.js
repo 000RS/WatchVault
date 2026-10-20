@@ -1,16 +1,13 @@
 // Numbers and the "viewer personality" for the Stats page.
 
-import { CATEGORIES, CATEGORY_LABEL } from './categories';
+import { CATEGORIES, CATEGORY_LABEL, STATUSES, STARTED } from './categories';
 
 const DRAMA_SHELVES = ['kdrama', 'turkish', 'indian', 'pakistani', 'cdrama', 'jdrama', 'thai'];
 const DEFAULT_EP_MIN = { anime: 24, tv: 45 };
 
-/** Anything you've actually started counts as "watched" (plan-to-watch does not). */
+/** Anything you've actually started counts as "watched". Plan to watch and Seen clips don't. */
 export function isWatched(e) {
-  if (e.status === 'plan') return false;
-  if (e.status === 'completed') return true;
-  if (e.media_type === 'movie') return (e.movie_progress_pct || 0) > 0 || e.status !== 'plan';
-  return (e.episodes_watched || 0) > 0 || e.status !== 'plan';
+  return STARTED.has(e.status);
 }
 
 export function minutesWatched(e) {
@@ -30,7 +27,7 @@ export function computeStats(entries) {
     count: watched.filter((e) => e.category === c.id).length,
   })).filter((c) => c.count > 0);
 
-  const byStatus = ['completed', 'watching', 'on_hold', 'dropped', 'plan'].map((id) => ({
+  const byStatus = STATUSES.map((x) => x.id).map((id) => ({
     id,
     count: entries.filter((e) => e.status === id).length,
   }));
@@ -141,11 +138,13 @@ function personality({ watched, status, byCategory, countries, avgRating, ratedC
   }
 
   const traits = [];
-  const started = status.completed + status.watching + status.on_hold + status.dropped;
+  const started = status.completed + status.watching + status.on_hold + status.dropped + (status.stopped || 0) + (status.tried || 0);
   const dropRate = started ? status.dropped / started : 0;
   if (started >= 8 && dropRate >= 0.2) traits.push({ label: 'Ruthless dropper', text: `You drop ${pct(dropRate)} of what you start. Life's too short for bad shows.` });
   if (started >= 10 && dropRate <= 0.05) traits.push({ label: 'The finisher', text: 'You almost never drop anything. Once you start, you see it through.' });
   if (status.plan >= Math.max(10, status.completed)) traits.push({ label: 'Watchlist hoarder', text: `${status.plan} titles waiting to be watched. The list grows faster than the free time.` });
+  if ((status.tried || 0) >= 8) traits.push({ label: 'Serial sampler', text: `${status.tried} shows tried for a few episodes. You know within minutes.` });
+  if ((status.clips || 0) >= 5) traits.push({ label: 'Reel scholar', text: `${status.clips} shows you know from clips alone.` });
   if (status.watching >= 6) traits.push({ label: 'The juggler', text: `${status.watching} things in progress at once. You know exactly where you left off in every one.` });
   if (ratedCount >= 5 && avgRating >= 8) traits.push({ label: 'Generous critic', text: `Average rating ${avgRating.toFixed(1)}/10. You find something to love in most things.` });
   if (ratedCount >= 5 && avgRating < 6.5) traits.push({ label: 'Hard to impress', text: `Average rating ${avgRating.toFixed(1)}/10. A 9 from you means something.` });
@@ -188,4 +187,30 @@ export function completionRankings(entries, benchmarks) {
     const pct = Math.round((watched / b.keys.length) * 1000) / 10;
     return { ...b, watched, total: b.keys.length, pct, tier: tierFor(pct) };
   });
+}
+
+/** How you finish things, per shelf: started, completed, finish rate and how the rest ended. */
+export function finishRates(entries) {
+  const rows = [];
+  for (const c of CATEGORIES) {
+    const list = entries.filter((e) => e.category === c.id);
+    const started = list.filter((e) => STARTED.has(e.status));
+    if (!started.length) continue;
+    const n = (st) => list.filter((e) => e.status === st).length;
+    const ended = started.filter((e) => e.status !== 'watching' && e.status !== 'on_hold').length;
+    rows.push({
+      id: c.id,
+      label: c.label,
+      started: started.length,
+      completed: n('completed'),
+      rate: ended ? Math.round((n('completed') / ended) * 100) : null,
+      watching: n('watching'),
+      on_hold: n('on_hold'),
+      stopped: n('stopped'),
+      tried: n('tried'),
+      dropped: n('dropped'),
+      clips: n('clips'),
+    });
+  }
+  return rows.sort((a, b) => b.started - a.started);
 }

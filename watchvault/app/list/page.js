@@ -2,13 +2,14 @@
 
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useEntries, updateMany, removeEntries, viewMemory } from '@/lib/store';
+import { useEntries, updateMany, removeEntries, restoreScroll, viewMemory } from '@/lib/store';
 import { CATEGORIES, STATUSES } from '@/lib/categories';
 import { progressFor, toCsv } from '@/lib/list';
 import { EntryTile } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
 import LinkAnimeBanner from '@/components/LinkAnimeBanner';
+import TidyUp from '@/components/TidyUp';
 
 const SORTS = [
   { id: 'updated', label: 'Recently changed' },
@@ -37,13 +38,13 @@ export default function ListPage() {
     viewMemory.set(MEMORY_KEY, { ...(viewMemory.get(MEMORY_KEY) || {}), category, status, sort, q });
   }, [category, status, sort, q]);
   useEffect(() => {
-    const save = () => viewMemory.set(MEMORY_KEY, { ...(viewMemory.get(MEMORY_KEY) || {}), scroll: window.scrollY });
+    const save = () => document.querySelector('[data-mylist]') && viewMemory.set(MEMORY_KEY, { ...(viewMemory.get(MEMORY_KEY) || {}), scroll: window.scrollY });
     window.addEventListener('scroll', save, { passive: true });
     return () => window.removeEventListener('scroll', save);
   }, []);
   const ready = Boolean(entries);
   useLayoutEffect(() => {
-    if (ready && remembered.scroll) window.scrollTo(0, remembered.scroll);
+    if (ready) return restoreScroll(remembered.scroll);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
@@ -162,6 +163,7 @@ export default function ListPage() {
       </header>
 
       <LinkAnimeBanner />
+      <TidyUp />
 
       <div className="stack">
         <div className="chips" aria-label="Shelf">
@@ -200,7 +202,7 @@ export default function ListPage() {
       {shown.length === 0 ? (
         <p className="muted">Nothing matches these filters.</p>
       ) : (
-        <div className="grid-posters">
+        <div className="grid-posters" data-mylist>
           {shown.map((e) => (
             <EntryTile key={e.id} entry={e} selecting={selecting} selected={selected.has(e.id)} onToggle={toggle} />
           ))}

@@ -1,37 +1,141 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Poster from './Poster';
 import Sheet from './Sheet';
 import EntryEditor from './EntryEditor';
+import { Credits, WhereToWatch } from './TitleExtras';
 import { Icon } from './Icons';
-import { CATEGORY_SHORT, STATUS_LABEL, completionPct, progressLabel } from '@/lib/categories';
+import { CATEGORY_LABEL, CATEGORY_SHORT, STATUS_LABEL, completionPct, progressLabel } from '@/lib/categories';
+import { getTitleFull } from '@/lib/catalog';
 import { addTitle, entryHref, itemHref } from '@/lib/actions';
 import { toast } from '@/lib/toast';
 import { useEntries } from '@/lib/store';
 import { tilt } from './tilt';
 
-const QUICK = [
-  { status: 'completed', label: 'Watched it all' },
+const ADD_OPTIONS = [
+  { status: 'completed', label: 'Watched it', primary: true },
   { status: 'watching', label: 'Watched half', pct: 50, movieOnly: true },
   { status: 'watching', label: 'Watching now' },
-  { status: 'plan', label: 'Want to watch' },
-  { status: 'dropped', label: 'Started, then stopped' },
+  { status: 'plan', label: 'Plan to watch' },
+  { status: 'tried', label: 'Tried it', hint: 'a few episodes', showOnly: true },
+  { status: 'stopped', label: 'Stopped', hint: 'after a while', showOnly: true },
+  { status: 'dropped', label: "Didn't like it" },
+  { status: 'clips', label: 'Seen clips', hint: 'reels, TikTok' },
 ];
 
-/** A catalogue title with one-tap "seen it" and a menu for other states. */
+export function AddOptions({ item, onAdded }) {
+  const [busy, setBusy] = useState(false);
+  const isMovie = item.mediaType === 'movie';
+  async function add(o) {
+    setBusy(true);
+    try {
+      await addTitle(item, o.status, o.pct != null ? { pct: o.pct } : o.status === 'tried' ? { episodes: 2 } : {});
+      toast(`${item.title}: ${o.pct === 50 ? 'half watched' : STATUS_LABEL[o.status].toLowerCase()}`);
+      onAdded?.();
+    } catch {
+      /* addTitle already showed the error */
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="add-grid">
+      {ADD_OPTIONS.filter((o) => (!o.movieOnly || isMovie) && (!o.showOnly || !isMovie)).map((o) => (
+        <button key={o.label} className={`btn ${o.primary ? 'primary' : ''}`} disabled={busy} onClick={() => add(o)}>
+          {o.label}
+          {o.hint && <small>{o.hint}</small>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Everything about a title in a panel over the current page, so browsing never
+ * loses your place. `item` is a catalogue title, `entry` one of your saved titles.
+ */
+export function DetailSheet({ item, entry: given, open, onClose }) {
+  const { lookup, index } = useEntries();
+  const src = item?.source || given?.source;
+  const type = item?.mediaType || given?.media_type;
+  const id = item?.sourceId || given?.source_id;
+  const [full, setFull] = useState(null);
+
+  useEffect(() => {
+    if (!open || full) return;
+    let alive = true;
+    getTitleFull(src, type, id)
+      .then((f) => alive && setFull(f))
+      .catch(() => alive && setFull({ title: null }));
+    return () => {
+      alive = false;
+    };
+  }, [open, src, type, id, full]);
+
+  const t = full?.title || item;
+  const entry = (given && [...index.values()].find((e) => e.id === given.id)) || (t ? lookup(t) : undefined) || index.get(`${src}:${type}:${id}`);
+  const poster = t?.poster || entry?.poster_url;
+  const name = t?.title || entry?.title || '';
+  const facts = [
+    t?.year || entry?.year,
+    CATEGORY_LABEL[entry?.category || t?.category],
+    t?.mediaType === 'movie' ? (t?.runtime ? `${t.runtime} min` : null) : t?.totalSeasons ? `${t.totalSeasons} ${t.totalSeasons === 1 ? 'season' : 'seasons'}` : null,
+    t?.rating ? `${Number(t.rating).toFixed(1)} on TMDB` : null,
+  ].filter(Boolean);
+  const href = entry ? entryHref(entry) : t ? itemHref(t) : '#';
+
+  return (
+    <Sheet open={open} onClose={onClose} title={name} wide className="detail">
+      {t?.backdrop && (
+        <div className="detail-backdrop" aria-hidden="true">
+          <img src={t.backdrop} alt="" />
+        </div>
+      )}
+      <div className="detail-top">
+        <Poster src={poster} title={name} />
+        <div className="stack-sm">
+          <h3 className="detail-title">{name}</h3>
+          <p className="muted small">{facts.join('  ·  ')}</p>
+          {t?.genres?.length > 0 && <p className="muted small">{t.genres.slice(0, 4).join(', ')}</p>}
+          <Link href={href} className="link small" onClick={onClose}>
+            Open full page
+          </Link>
+        </div>
+      </div>
+
+      {t?.overview && <p className="overview clamp">{t.overview}</p>}
+
+      {entry ? (
+        <div className="panel" style={{ padding: 18 }}>
+          <EntryEditor entry={entry} compact onRemoved={() => {}} />
+        </div>
+      ) : t ? (
+        <AddOptions item={t} />
+      ) : null}
+
+      {src === 'tmdb' && (
+        <div className="stack">
+          <h4 className="h-sub">Where to watch</h4>
+          {full ? <WhereToWatch providers={full.providers} compact /> : <div className="skeleton" style={{ height: 52, aspectRatio: 'auto' }} />}
+        </div>
+      )}
+      {full && <Credits full={full} onNavigate={onClose} />}
+    </Sheet>
+  );
+}
+
+/** A catalogue title: tap for details, ✓ for "watched it". */
 export function TitleTile({ item, size = 'md', showMeta = true }) {
   const { lookup } = useEntries();
   const entry = lookup(item);
-  const [menu, setMenu] = useState(false);
-  const [edit, setEdit] = useState(false);
+  const [open, setOpen] = useState(false);
 
-  async function add(status, pct) {
-    setMenu(false);
+  async function quickAdd() {
     try {
-      await addTitle(item, status, pct != null ? { pct } : {});
-      toast(`${item.title} added as ${pct === 50 ? 'half watched' : STATUS_LABEL[status].toLowerCase()}`);
+      await addTitle(item, 'completed');
+      toast(`${item.title} added as completed`);
     } catch {
       /* addTitle already showed the error */
     }
@@ -39,54 +143,41 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
 
   return (
     <div className="tile">
-      <Link href={itemHref(item)} className="tile-link" aria-label={item.title} {...tilt}>
+      <button className="tile-link as-button" onClick={() => setOpen(true)} aria-label={`${item.title}, details`} {...tilt}>
         <Poster src={item.poster} title={item.title} size={size}>
           {entry && <span className={`tile-badge st-${entry.status}`}>{STATUS_LABEL[entry.status]}</span>}
         </Poster>
-      </Link>
+      </button>
       <div className="tile-actions">
-        <button className="tick ghost" onClick={() => (entry ? setEdit(true) : setMenu(true))} aria-label={`More options for ${item.title}`}>
+        <button className="tick ghost" onClick={() => setOpen(true)} aria-label={`More options for ${item.title}`}>
           <Icon.More width={16} height={16} />
         </button>
         {entry ? (
-          <button className="tick on" onClick={() => setEdit(true)} aria-label={`Edit ${item.title} in your list`}>
+          <button className="tick on" onClick={() => setOpen(true)} aria-label={`Edit ${item.title} in your list`}>
             <Icon.Check width={16} height={16} />
           </button>
         ) : (
-          <button className="tick" onClick={() => add('completed')} aria-label={`Mark ${item.title} as watched`}>
+          <button className="tick" onClick={quickAdd} aria-label={`Mark ${item.title} as watched`}>
             <Icon.Check width={16} height={16} />
           </button>
         )}
       </div>
       {showMeta && (
         <div className="tile-meta">
-          <Link href={itemHref(item)} className="tile-title">
+          <button className="tile-title as-text" onClick={() => setOpen(true)}>
             {item.title}
-          </Link>
+          </button>
           <span className="tile-sub">{[item.year, CATEGORY_SHORT[item.category]].filter(Boolean).join(', ')}</span>
         </div>
       )}
-
-      <Sheet open={menu} onClose={() => setMenu(false)} title={item.title}>
-        <div className="menu-list">
-          {QUICK.filter((q) => !q.movieOnly || item.mediaType === 'movie').map((q) => (
-            <button key={q.label} className="menu-item" onClick={() => add(q.status, q.pct)}>
-              {q.label}
-            </button>
-          ))}
-          <Link href={itemHref(item)} className="menu-item muted-item" onClick={() => setMenu(false)}>
-            Open details
-          </Link>
-        </div>
-      </Sheet>
-      {entry && <QuickEdit entry={entry} open={edit} onClose={() => setEdit(false)} />}
+      {open && <DetailSheet item={item} open={open} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 
-/** One of your own titles, with quick edit and multi-select. */
+/** One of your own titles: tap for details and editing, or select in bulk. */
 export function EntryTile({ entry, selecting = false, selected = false, onToggle }) {
-  const [edit, setEdit] = useState(false);
+  const [open, setOpen] = useState(false);
   const pct = completionPct(entry);
   const body = (
     <Poster src={entry.poster_url} title={entry.title}>
@@ -105,48 +196,33 @@ export function EntryTile({ entry, selecting = false, selected = false, onToggle
           {body}
         </button>
       ) : (
-        <Link href={entryHref(entry)} className="tile-link" aria-label={entry.title} {...tilt}>
+        <button className="tile-link as-button" onClick={() => setOpen(true)} aria-label={`${entry.title}, details`} {...tilt}>
           {body}
-        </Link>
+        </button>
       )}
       {!selecting && (
         <div className="tile-actions">
-          <button className="tick ghost" onClick={() => setEdit(true)} aria-label={`Quick edit ${entry.title}`}>
+          <button className="tick ghost" onClick={() => setOpen(true)} aria-label={`Quick edit ${entry.title}`}>
             <Icon.More width={16} height={16} />
           </button>
         </div>
       )}
       <div className="tile-meta">
-        <Link href={entryHref(entry)} className="tile-title">
+        <button className="tile-title as-text" onClick={() => (selecting ? onToggle?.(entry.id) : setOpen(true))}>
           {entry.title}
-        </Link>
+        </button>
         <span className="tile-sub">
           <span className={`dot st-${entry.status}`} aria-hidden="true" />
-          {entry.status === 'completed' && entry.media_type === 'movie' ? 'Watched' : entry.status === 'completed' ? progressLabel(entry) : `${STATUS_LABEL[entry.status]}${entry.status !== 'plan' ? `, ${progressLabel(entry).toLowerCase()}` : ''}`}
+          {entry.status === 'completed' ? (entry.media_type === 'movie' ? 'Watched' : progressLabel(entry)) : entry.status === 'plan' || entry.status === 'clips' ? STATUS_LABEL[entry.status] : `${STATUS_LABEL[entry.status]}, ${progressLabel(entry).toLowerCase()}`}
         </span>
         {entry.rating != null && <span className="tile-rating">{Number(entry.rating)}/10</span>}
       </div>
-      <QuickEdit entry={entry} open={edit} onClose={() => setEdit(false)} />
+      {open && <DetailSheet entry={entry} open={open} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 
+/** Kept for older callers: the editor in a sheet. */
 export function QuickEdit({ entry, open, onClose }) {
-  const { index } = useEntries();
-  // Always edit the newest copy of the entry
-  const live = [...index.values()].find((e) => e.id === entry.id) || entry;
-  return (
-    <Sheet open={open} onClose={onClose} title={live.title}>
-      <div className="quick-head">
-        <Poster src={live.poster_url} title={live.title} size="sm" />
-        <div>
-          <p className="muted">{[live.year, CATEGORY_SHORT[live.category]].filter(Boolean).join(', ')}</p>
-          <Link href={entryHref(live)} className="link" onClick={onClose}>
-            Open full page
-          </Link>
-        </div>
-      </div>
-      <EntryEditor entry={live} compact onRemoved={onClose} />
-    </Sheet>
-  );
+  return open ? <DetailSheet entry={entry} open={open} onClose={onClose} /> : null;
 }

@@ -8,7 +8,10 @@ const STATUS_PHRASES = [
   ['wishlist', 'plan'], ['ptw', 'plan'], ['planned', 'plan'], ['planning', 'plan'], ['plan', 'plan'], ['later', 'plan'],
   ['currently watching', 'watching'], ['in progress', 'watching'], ['watching', 'watching'], ['ongoing', 'watching'], ['current', 'watching'],
   ['on hold', 'on_hold'], ['on-hold', 'on_hold'], ['paused', 'on_hold'], ['hold', 'on_hold'],
-  ['dropped', 'dropped'], ['abandoned', 'dropped'], ['stopped', 'dropped'], ['quit', 'dropped'], ['drop', 'dropped'],
+  ['dropped', 'dropped'], ['abandoned', 'dropped'], ['quit', 'dropped'], ['drop', 'dropped'], ['not for me', 'dropped'],
+  ['stopped', 'stopped'], ['stopped at', 'stopped'],
+  ['tried', 'tried'], ['try out', 'tried'], ['tryout', 'tried'], ['try-out', 'tried'], ['sampled', 'tried'],
+  ['seen clips', 'clips'], ['clips', 'clips'], ['reels', 'clips'], ['tiktok', 'clips'], ['shorts', 'clips'],
   ['completed', 'completed'], ['complete', 'completed'], ['finished', 'completed'], ['watched', 'completed'], ['seen', 'completed'], ['done', 'completed'],
 ];
 const KIND_WORDS = {

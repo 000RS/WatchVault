@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useEntries } from '@/lib/store';
-import { completionRankings, computeStats } from '@/lib/stats';
-import { STATUS_LABEL, countLabel } from '@/lib/categories';
+import { completionRankings, computeStats, finishRates } from '@/lib/stats';
+import { CATEGORIES, STATUS_LABEL, countLabel } from '@/lib/categories';
 
 const region = (code) => {
   try {
@@ -16,9 +16,13 @@ const region = (code) => {
 const fmt = (n) => Math.round(n).toLocaleString();
 
 export default function StatsPage() {
-  const { entries } = useEntries();
+  const { entries: all } = useEntries();
+  const [scope, setScope] = useState('all');
   const [benchmarks, setBenchmarks] = useState(null);
+  const entries = useMemo(() => (all ? (scope === 'all' ? all : all.filter((e) => e.category === scope)) : null), [all, scope]);
   const s = useMemo(() => (entries ? computeStats(entries) : null), [entries]);
+  const rates = useMemo(() => (all ? finishRates(all) : []), [all]);
+  const usedCats = useMemo(() => CATEGORIES.filter((c) => (all || []).some((e) => e.category === c.id)), [all]);
 
   useEffect(() => {
     fetch('/api/benchmarks')
@@ -27,10 +31,13 @@ export default function StatsPage() {
       .catch(() => setBenchmarks([]));
   }, []);
 
-  const ranks = useMemo(() => (entries && benchmarks ? completionRankings(entries, benchmarks) : null), [entries, benchmarks]);
+  const ranks = useMemo(
+    () => (entries && benchmarks ? completionRankings(entries, scope === 'all' ? benchmarks : benchmarks.filter((b) => b.category === scope)) : null),
+    [entries, benchmarks, scope]
+  );
 
   if (!s) return <div className="skeleton" style={{ height: 300, aspectRatio: 'auto' }} />;
-  if (!s.total)
+  if (!all?.length)
     return (
       <div className="empty">
         <h1 className="h-page">No stats yet</h1>
@@ -62,6 +69,17 @@ export default function StatsPage() {
         </div>
       </header>
 
+      <div className="chips" aria-label="Show stats for">
+        <button className={`chip ${scope === 'all' ? 'on' : ''}`} onClick={() => setScope('all')}>
+          Everything
+        </button>
+        {usedCats.map((c) => (
+          <button key={c.id} className={`chip ${scope === c.id ? 'on' : ''}`} onClick={() => setScope(c.id)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+
       <div className="kpis">
         <Kpi v={fmt(s.hours)} l="hours" n={s.hours >= 24 ? `about ${(s.hours / 24).toFixed(1)} days` : 'of watching'} />
         <Kpi v={fmt(s.episodes)} l="episodes" n="across every series" />
@@ -83,6 +101,54 @@ export default function StatsPage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="panel">
+        <h2 className="h-sub">How you finish things</h2>
+        <p className="muted small">Finish rate counts titles you completed out of everything you finished or left. Watching and on hold don&apos;t count yet.</p>
+        <div className="table-wrap">
+          <table className="rates">
+            <thead>
+              <tr>
+                <th>Shelf</th>
+                <th>Started</th>
+                <th>Completed</th>
+                <th>Finish rate</th>
+                <th>Stopped</th>
+                <th>Tried</th>
+                <th>Dropped</th>
+                <th>On hold</th>
+                <th>Seen clips</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rates
+                .filter((r) => scope === 'all' || r.id === scope)
+                .map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.label}</td>
+                    <td className="num">{r.started}</td>
+                    <td className="num">{r.completed}</td>
+                    <td className="num">
+                      {r.rate == null ? '–' : (
+                        <span className="rate-cell">
+                          <span className="bar">
+                            <i style={{ width: `${r.rate}%` }} />
+                          </span>
+                          {r.rate}%
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">{r.stopped || '–'}</td>
+                    <td className="num">{r.tried || '–'}</td>
+                    <td className="num">{r.dropped || '–'}</td>
+                    <td className="num">{r.on_hold || '–'}</td>
+                    <td className="num">{r.clips || '–'}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <div className="dash">

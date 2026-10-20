@@ -8,9 +8,10 @@ import { findAnimeTwin, saveEntry, updateEntry } from './store';
 import { getStoreEntries } from './store';
 import { toast } from './toast';
 import { STATUS_LABEL } from './categories';
+import { mergeInto } from './linkAnime';
 
 /** Add a catalogue title with a status ("completed", "watching" + 50% for a half-watched movie, ...). */
-const RANK = { completed: 5, watching: 4, on_hold: 3, dropped: 2, plan: 1 };
+const RANK = { completed: 8, watching: 7, on_hold: 6, stopped: 5, tried: 4, dropped: 3, clips: 2, plan: 1 };
 
 export async function addTitle(title, status = 'completed', extra = {}) {
   const row = {
@@ -22,11 +23,10 @@ export async function addTitle(title, status = 'completed', extra = {}) {
   const twin = findAnimeTwin(getStoreEntries(), title);
   if (twin) {
     try {
-      const keep = (RANK[twin.status] || 0) >= (RANK[row.status] || 0) ? twin.status : row.status;
-      const progress = progressFor(title.detailed ? title : { ...title, mediaType: title.mediaType }, { status: keep, episodes: twin.episodes_watched || extra.episodes });
-      const saved = await updateEntry(twin.id, { ...snapshotFromTitle(title), category: 'anime', ...progress }, { delay: 0 });
-      if (!title.detailed) fillDetails(saved || twin);
-      return saved;
+      // Upgrade the old AniList copy into this TMDB title, keeping the furthest progress.
+      if ((RANK[row.status] || 0) > (RANK[twin.status] || 0)) await updateEntry(twin.id, { status: row.status }, { delay: 0 });
+      await mergeInto({ ...twin, status: (RANK[row.status] || 0) > (RANK[twin.status] || 0) ? row.status : twin.status }, title);
+      return getStoreEntries().find((e) => e.source === title.source && e.source_id === String(title.sourceId));
     } catch (e) {
       toast(e.message, { kind: 'error' });
       throw e;

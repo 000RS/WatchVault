@@ -2,6 +2,37 @@
 
 A personal vault for everything you watch: movies, series, anime and dramas from every country, tracked down to the episode. Share it with friends like a profile.
 
+## Upgrading to version 3
+
+Your list stays exactly as it is. Everything here is free.
+
+1. **Database (once):** Supabase → **SQL Editor** → **New query** → paste [`supabase/upgrade_v3.sql`](supabase/upgrade_v3.sql) → **Run**. (Coming from version 1? Run `upgrade_v2.sql` first.)
+2. **Code:** upload everything from the new `watchvault` folder into your GitHub `watchvault` folder and commit. Vercel redeploys by itself.
+3. **Optional, free AI guide:** get a key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (sign in with Google, no card). In Vercel → **Settings → Environment Variables**, add `GEMINI_API_KEY` with that key, then redeploy. Without it, everything else still works and the Ask tab is simply hidden.
+4. Open the site. Tap **Update now** on the anime banner, and **Sort them** on the new-groups banner.
+
+### What's new in version 3
+
+- **Anime merge that works:** each anime is matched on its own. Season entries ("Attack on Titan Season 3") merge into one show with the right seasons ticked. Anything unsure is shown with posters to pick from, or a search box.
+- **New statuses:** Stopped (got through a good part, then stopped), Tried (a few episodes), Seen clips (from reels, TikTok or YouTube), next to Completed, Watching, Plan to watch, On hold and Dropped.
+- **Animation shelf** for non-anime cartoons and animated films.
+- **Stats:** finish rate per shelf, counts for every status, and stats for one shelf at a time.
+- **Explore:** Netflix-style rows (top picks, because you love…, because you watched…, best-loved in a language you watch, hidden gems); Studios & people (Marvel, DC, Pixar, Ghibli, MAPPA, Yash Raj, Studio Dragon and more, plus any actor, director or writer); more filters (streaming service, language, rating, taste, hidden gems, newest); a Refresh that shows new titles on every tab.
+- **Details open in a panel** over the page, so you never lose your place. Going back from a full page restores the grid and the scroll position.
+- **Where to watch** in your country on every title, cast and crew links, studios, and franchise watch order (e.g. Star Wars in release order).
+- **Search** forgives spelling ("chota bheem" finds Chhota Bheem) and finds people from every country.
+- **Ask:** a free AI guide that knows your list, asks what you're in the mood for and answers like a person. It plans franchise watch orders and shows its picks as cards you can tick.
+- New look: clearer fonts and a vivid colour palette on a dark background.
+
+### Staying free
+
+Every service here has a free plan, and nothing needs a card:
+
+- **Supabase free plan:** a project pauses after about a week with no visits. Opening the site, or tapping Restore in Supabase, wakes it.
+- **Vercel Hobby:** free for personal use.
+- **TMDB:** free for personal, non-commercial use.
+- **Gemini free tier:** has daily limits, and Google may use free-tier conversations to improve its products. If you hit the limit, the guide asks you to try again later.
+
 ## Upgrading from version 1
 
 Your list is stored in Supabase, not in the code, so nothing you've added is lost.
@@ -26,6 +57,7 @@ Your list is stored in Supabase, not in the code, so nothing you've added is los
 | **Profile** | `your-site/u/username`. Friends can always see it; turn on **Public profile** in Settings to share it with anyone. Private notes are never shown. |
 | **History** | Every title you added or changed, grouped by day. |
 | **Import** | Excel, CSV, Word, text, Letterboxd, IMDb, MyAnimeList or an AniList username. Headings like "Completed" or "Dropped" apply to the lines below them. Titles are matched on the server in seconds, typos included. You review everything first, and only the lines that couldn't be matched are left for you to fix. |
+| **Studios & people** | Studio, actor, director and writer pages with everything they've made, and franchise pages in watch order. |
 | **Settings** | Username, bio, public profile, showcase size, which shelves appear in your feed, Home layout, CSV download. |
 
 ## First-time setup (new installs only)

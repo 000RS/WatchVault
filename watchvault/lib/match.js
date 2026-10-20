@@ -147,3 +147,46 @@ export function queryVariants(q) {
   if (words.length > 1) out.add(words.slice(0, 2).join(' '));
   return [...out].filter((v) => v.length >= 2);
 }
+
+/**
+ * Other ways people spell the same title, mostly for names written in English letters
+ * from Hindi, Urdu, Arabic, Japanese and so on: "chota bheem" → "chhota bheem", "dil wale" → "dilwale".
+ */
+export function spellingVariants(q) {
+  const base = String(q || '').toLowerCase().trim();
+  if (!base) return [];
+  const rules = [
+    [/ch(?!h)/g, 'chh'],
+    [/chh/g, 'ch'],
+    [/ee/g, 'i'],
+    [/(?<=[bcdfghjklmnpqrstvwxyz])i(?=[bcdfghjklmnpqrstvwxyz]|\b)/g, 'ee'],
+    [/oo/g, 'u'],
+    [/(?<=[bcdfghjklmnpqrstvwxyz])u(?=[bcdfghjklmnpqrstvwxyz]|\b)/g, 'oo'],
+    [/aa/g, 'a'],
+    [/(?<=[bcdfghjklmnpqrstvwxyz])a(?=[bcdfghjklmnpqrstvwxyz])/g, 'aa'],
+    [/w/g, 'v'],
+    [/v/g, 'w'],
+    [/z/g, 'j'],
+    [/ph/g, 'f'],
+    [/q/g, 'k'],
+    [/(?<=[kgdtbp])h/g, ''],
+    [/(?<=[kgdtbp])(?!h)(?=[aeiou])/g, 'h'],
+    [/y/g, 'i'],
+    [/(.)\1/g, '$1'],
+    [/ /g, ''],
+    [/(?<=[a-z]{3})(?=[a-z]{3,}$)/, ' '],
+  ];
+  const out = new Set();
+  for (const [re, to] of rules) {
+    const v = base.replace(re, to).replace(/\s+/g, ' ').trim();
+    if (v && v !== base) out.add(v);
+  }
+  // A couple of two-step variants for the most common pairings
+  for (const v of [...out].slice(0, 6)) {
+    for (const [re, to] of rules.slice(0, 8)) {
+      const w = v.replace(re, to).trim();
+      if (w && w !== base) out.add(w);
+    }
+  }
+  return [...out].slice(0, 14);
+}

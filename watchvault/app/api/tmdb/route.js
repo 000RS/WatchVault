@@ -6,9 +6,14 @@ import { tmdbServer } from '@/lib/tmdbServer';
 const ALLOWED = new RegExp(
   '^(' +
     [
-      'search/(multi|movie|tv)',
+      'search/(multi|movie|tv|person|company|collection|keyword)',
       '(movie|tv)/\\d+',
-      '(movie|tv)/\\d+/(recommendations|similar)',
+      '(movie|tv)/\\d+/(recommendations|similar|credits|watch/providers)',
+      'person/\\d+',
+      'person/\\d+/combined_credits',
+      'company/\\d+',
+      'collection/\\d+',
+      'watch/providers/(movie|tv)',
       'movie/(now_playing|upcoming|popular|top_rated)',
       'tv/(on_the_air|airing_today|popular|top_rated)',
       'trending/(all|movie|tv)/(day|week)',

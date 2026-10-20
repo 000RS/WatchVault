@@ -1,202 +1,336 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { BROWSE_SORTS, BROWSE_TYPES, bestInLanguage, browseTitles, newShelves, similarTitles, tmdb, normalizeTmdb } from '@/lib/catalog';
-import { DECADES, MOVIE_GENRES, TV_GENRES, languageName } from '@/lib/categories';
-import { useEntries, hiddenCategories, viewMemory } from '@/lib/store';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import {
+  BROWSE_SORTS,
+  BROWSE_TYPES,
+  LANGUAGES,
+  bestInLanguage,
+  browseTitles,
+  findCompany,
+  newShelves,
+  normalizeTmdb,
+  searchPeople,
+  similarTitles,
+  streamingServices,
+  tmdb,
+} from '@/lib/catalog';
+import { DECADES, MOVIE_GENRES, TV_GENRES, genreIdsFor, languageName } from '@/lib/categories';
+import { useEntries, hiddenCategories, restoreScroll, viewMemory } from '@/lib/store';
+import { tasteGenreIds, tasteProfile } from '@/lib/taste';
 import Shelf from '@/components/Shelf';
 import { TitleTile } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
+import AskPanel, { useAiEnabled } from '@/components/Ask';
 
 const TABS = [
-  { id: 'foryou', label: 'For you' },
-  { id: 'browse', label: 'Tick off' },
-  { id: 'new', label: 'New' },
+  { id: 'foryou', label: 'For you', blurb: 'Rows picked from what you love. Tick anything you have already seen.' },
+  { id: 'browse', label: 'Tick off', blurb: 'The best-known titles, filtered your way. Tick everything you have seen.' },
+  { id: 'studios', label: 'Studios & people', blurb: 'Browse by studio, franchise, actor, director or writer.' },
+  { id: 'new', label: 'New', blurb: 'Fresh releases, updated every day.' },
+  { id: 'ask', label: 'Ask', blurb: 'Tell the guide what you are in the mood for, or how you want to watch a franchise.', ai: true },
 ];
 
+const MEM = 'explore';
+
 export default function ExplorePage() {
-  const [tab, setTab] = useState(viewMemory.get('explore')?.tab || 'foryou');
-  const [round, setRound] = useState(0);
+  const mem = viewMemory.get(MEM) || {};
+  const [tab, setTab] = useState(mem.tab || 'foryou');
+  const [round, setRound] = useState(mem.round || 0);
+  const ai = useAiEnabled();
+
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     if (t && TABS.some((x) => x.id === t)) setTab(t);
   }, []);
   useEffect(() => {
-    viewMemory.set('explore', { ...(viewMemory.get('explore') || {}), tab });
+    viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), tab, round });
+  }, [tab, round]);
+
+  // Scroll position per tab, so coming back from a full page lands where you were.
+  useEffect(() => {
+    // Only record while this page is on screen; leaving the page clamps the scroll and must not overwrite it.
+    const save = () => document.querySelector(`[data-explore="${tab}"]`) && viewMemory.set(`${MEM}:scroll:${tab}`, window.scrollY);
+    window.addEventListener('scroll', save, { passive: true });
+    return () => window.removeEventListener('scroll', save);
   }, [tab]);
+
+  const tabs = TABS.filter((t) => !t.ai || ai);
+  const current = tabs.find((t) => t.id === tab) || tabs[0];
 
   return (
     <>
       <header className="page-head">
         <div className="head-text">
           <h1 className="h-page">Explore</h1>
-          <p className="muted">
-            {tab === 'foryou'
-              ? 'Picked from what you rate highest. Tick anything you have already seen.'
-              : tab === 'browse'
-                ? 'The best-known titles by year, decade and genre. Tick everything you have seen.'
-                : 'Fresh releases, updated every day.'}
-          </p>
+          <p className="muted">{current.blurb}</p>
         </div>
         <div className="row">
-        <button className="btn sm" onClick={() => setRound((r) => r + 1)} title="Show fresh titles">
-          <Icon.Refresh width={16} height={16} /> Refresh
-        </button>
-        <div className="tabs" role="tablist">
-          {TABS.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab-btn ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
-              {t.label}
+          {current.id !== 'ask' && current.id !== 'studios' && (
+            <button className="btn sm" onClick={() => (setRound((r) => r + 1), window.scrollTo({ top: 0 }))} title="Show fresh titles">
+              <Icon.Refresh width={16} height={16} /> Refresh
             </button>
-          ))}
-        </div>
+          )}
+          <div className="tabs" role="tablist">
+            {tabs.map((t) => (
+              <button key={t.id} role="tab" aria-selected={current.id === t.id} className={`tab-btn ${current.id === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
-      {tab === 'foryou' && <ForYou key={`f${round}`} round={round} />}
-      {tab === 'browse' && <Browse key={`b${round}`} />}
-      {tab === 'new' && <New key={`n${round}`} />}
+      <div className="page-enter" data-explore={current.id} style={{ gap: 'inherit' }}>
+        {current.id === 'foryou' && <ForYou key={`f${round}`} round={round} />}
+        {current.id === 'browse' && <Browse key={`b${round}`} round={round} />}
+        {current.id === 'studios' && <Studios />}
+        {current.id === 'new' && <New key={`n${round}`} />}
+        {current.id === 'ask' && <AskPanel />}
+      </div>
+      <RestoreScroll tab={current.id} />
     </>
   );
 }
+
+function RestoreScroll({ tab }) {
+  useLayoutEffect(() => restoreScroll(viewMemory.get(`${MEM}:scroll:${tab}`)), [tab]);
+  return null;
+}
+
+/* ---------------- For you: Netflix-style rows ---------------- */
+
+const plans = new Map(); // round → rows, kept while the app is open so going back shows the same rows
 
 function ForYou({ round = 0 }) {
   const { entries, profile } = useEntries();
   const hidden = hiddenCategories(profile);
-
-  // Rows are chosen once per visit, so ticking titles never reshuffles the page.
-  // Next time you open Explore, they reflect what you just added.
-  const plan = useRef(null);
-  if (!plan.current && entries) plan.current = buildPlan(entries, hidden, round);
-  const rows = plan.current || { seeds: [], languages: [] };
-
-  return (
-    <>
-      {rows.seeds.map(({ e, load }) => (
-        <Shelf key={e.id} title={`Because you watched ${e.title}`} load={load} hideAdded />
-      ))}
-      {rows.languages.map(({ code, media, load }) => (
-        <Shelf key={code + media} title={`Best-loved ${languageName(code)} ${media === 'movie' ? 'films' : 'series'}`} subtitle="You watch a lot in this language" load={load} hideAdded />
-      ))}
-      <Shelf title="Popular this week" load={rows.trending || (() => Promise.resolve([]))} hideAdded />
-    </>
-  );
+  const plan = useRef(plans.get(round) || null);
+  if (!plan.current && entries) {
+    plan.current = buildPlan(entries, hidden, round);
+    plans.set(round, plan.current);
+  }
+  if (!entries) return <div className="skeleton" style={{ height: 240, aspectRatio: 'auto' }} />;
+  const rows = plan.current;
+  if (!rows.rows.length)
+    return (
+      <div className="empty">
+        <p className="lede">Add a few titles you have watched and rows picked for you appear here.</p>
+        <Link href="/import" className="btn primary">
+          Import a list
+        </Link>
+      </div>
+    );
+  return rows.rows.map((r) => <Shelf key={r.key} title={r.title} subtitle={r.subtitle} load={r.load} hideAdded />);
 }
 
-function buildPlan(entries, hidden, round = 0) {
+function buildPlan(entries, hidden, round) {
   const ok = (i) => !hidden.has(i.category);
-  const pool = entries.filter((e) => e.source === 'tmdb' && e.status !== 'plan' && e.status !== 'dropped' && ok(e));
-  const recent = [...pool].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-  const loved = [...pool].filter((e) => e.rating != null).sort((a, b) => b.rating - a.rating);
-  // Refresh picks different titles to base rows on, and the next page of suggestions.
-  const shuffled = round ? [...pool].sort(() => Math.random() - 0.5) : [];
-  const seeds = [];
-  for (const e of round ? shuffled : [...recent.slice(0, 3), ...loved.slice(0, 3), ...recent.slice(3)]) {
-    if (seeds.length >= 6) break;
-    if (!seeds.includes(e)) seeds.push(e);
+  const p = tasteProfile(entries, hidden);
+  const rows = [];
+  const page = String((round % 5) + 1);
+
+  // 1. Top picks: your favourite genres in the medium you watch most
+  const topIds = tasteGenreIds(p, p.media, 3);
+  if (topIds.length) {
+    rows.push({
+      key: 'top',
+      title: 'Top picks for you',
+      subtitle: `Built from your love of ${p.genres.slice(0, 2).map((g) => g.name.toLowerCase()).join(' and ')}`,
+      load: () =>
+        tmdb(`discover/${p.media}`, { with_genres: topIds.join('|'), sort_by: 'vote_count.desc', page, without_genres: p.media === 'tv' ? '10767,10763,10764' : '' }).then((d) =>
+          (d.results || []).map((r) => normalizeTmdb(r, p.media)).filter((i) => i.poster && ok(i))
+        ),
+    });
   }
 
-  // Languages other than English that you watch often
-  const counts = {};
-  for (const e of pool) {
-    if (!e.original_language || e.original_language === 'en') continue;
-    const media = e.media_type === 'movie' ? 'movie' : 'tv';
-    const k = `${e.original_language}|${media}`;
-    counts[k] = (counts[k] || 0) + 1;
-  }
-  const languages = Object.entries(counts)
-    .filter(([, n]) => n >= 2)
-    .sort((a, b) => b[1] - a[1])
+  // 2. Because you watched …: a few recent or favourite titles, different each refresh
+  const seedsPool = round ? [...p.loved].sort(() => Math.random() - 0.5) : p.loved;
+  const seeds = seedsPool.slice(0, 4);
+  const rowsBy = seeds.map((e) => ({
+    key: `seed${e.id}`,
+    title: `Because you watched ${e.title}`,
+    load: () => similarTitles(e.media_type, e.source_id, { language: e.original_language, genres: e.genres || [], page: (round % 2) + 1 }).then((l) => l.filter(ok)),
+  }));
+
+  // 3. Because you love <genre>
+  const genreRows = p.genres.slice(round % 2, (round % 2) + 3).map((g) => {
+    const ids = genreIdsFor([g.name], g.media);
+    return {
+      key: `g${g.name}`,
+      title: `Because you love ${g.name.toLowerCase()}`,
+      subtitle: g.media === 'movie' ? 'Films' : 'Series',
+      load: () =>
+        ids.length
+          ? tmdb(`discover/${g.media}`, { with_genres: ids.join(','), sort_by: 'vote_count.desc', page }).then((d) =>
+              (d.results || []).map((r) => normalizeTmdb(r, g.media)).filter((i) => i.poster && ok(i))
+            )
+          : Promise.resolve([]),
+    };
+  });
+
+  // 4. Languages you watch a lot in
+  const langRows = p.languages
+    .filter((l) => !(l.code === 'ja' && l.media === 'tv'))
     .slice(0, 2)
-    .map(([k]) => {
-      const [code, media] = k.split('|');
-      return { code, media, load: () => bestInLanguage(media, code, (round % 4) + 1).then((l) => l.filter(ok)) };
-    })
-    .filter((l) => !(l.code === 'ja' && l.media === 'tv')); // anime has its own rows
+    .map((l) => ({
+      key: `l${l.code}${l.media}`,
+      title: `Best-loved ${languageName(l.code)} ${l.media === 'movie' ? 'films' : 'series'}`,
+      subtitle: 'You watch a lot in this language',
+      load: () => bestInLanguage(l.media, l.code, (round % 4) + 1).then((x) => x.filter(ok)),
+    }));
 
-  return {
-    seeds: seeds.map((e) => ({
-      e,
-      load: () => similarTitles(e.media_type, e.source_id, { language: e.original_language, genres: e.genres || [], page: (round % 2) + 1 }).then((l) => l.filter(ok)),
-    })),
-    languages,
-    trending: () =>
+  // 5. Hidden gems in your top genre
+  const gem = p.genres[0];
+  const gemIds = gem ? genreIdsFor([gem.name], gem.media) : [];
+  const gemRow = gemIds.length
+    ? [
+        {
+          key: 'gems',
+          title: `Hidden gems: ${gem.name.toLowerCase()}`,
+          subtitle: 'Loved by the few who found them',
+          load: () =>
+            tmdb(`discover/${gem.media}`, { with_genres: gemIds.join(','), sort_by: 'vote_average.desc', 'vote_count.gte': '60', 'vote_count.lte': '900', page }).then((d) =>
+              (d.results || []).map((r) => normalizeTmdb(r, gem.media)).filter((i) => i.poster && ok(i))
+            ),
+        },
+      ]
+    : [];
+
+  // Interleave so the page mixes "because you watched" with genre rows, like a streaming home page.
+  const mixed = [];
+  for (let i = 0; i < Math.max(rowsBy.length, genreRows.length); i++) {
+    if (rowsBy[i]) mixed.push(rowsBy[i]);
+    if (genreRows[i]) mixed.push(genreRows[i]);
+    if (i === 0) mixed.push(...langRows);
+  }
+  rows.push(...mixed, ...gemRow);
+  rows.push({
+    key: 'trend',
+    title: 'Popular this week',
+    load: () =>
       tmdb(round % 2 ? 'trending/all/day' : 'trending/all/week', { page: String((round % 3) + 1) }).then((d) =>
         (d.results || []).filter((r) => r.media_type !== 'person').map((r) => normalizeTmdb(r)).filter((i) => i.poster && ok(i))
       ),
-  };
+  });
+  return { rows: p.size ? rows : [] };
 }
 
-function Browse() {
-  const { lookup, profile } = useEntries();
+/* ---------------- Tick off: filtered grid that remembers where you were ---------------- */
+
+const FILTER_KEYS = ['typeId', 'when', 'genre', 'sort', 'language', 'minRating', 'provider'];
+const gridCache = new Map(); // filters → { items, page, total }
+
+function Browse({ round = 0 }) {
+  const { entries, lookup, profile } = useEntries();
   const hidden = hiddenCategories(profile);
-  const mem = viewMemory.get('browse') || {};
-  const types = BROWSE_TYPES.filter((t) => !hidden.has(t.category || t.id));
-  const [typeId, setTypeId] = useState(mem.typeId || types[0]?.id || 'movies');
-  const [when, setWhen] = useState(mem.when || '');
-  const [genre, setGenre] = useState(mem.genre || '');
-  const [sort, setSort] = useState(mem.sort || 'known');
-  const [hideSeen, setHideSeen] = useState(mem.hideSeen ?? true);
-  const [pages, setPages] = useState({ items: [], page: 0, total: 1 });
+  const saved = viewMemory.get('browse') || {};
+  const types = BROWSE_TYPES.filter((t) => !hidden.has(t.category));
+  const [f, setF] = useState(() => ({
+    typeId: saved.typeId || types[0]?.id || 'movies',
+    when: saved.when || '',
+    genre: saved.genre || '',
+    sort: saved.sort || 'known',
+    language: saved.language || '',
+    minRating: saved.minRating || '',
+    provider: saved.provider || '',
+  }));
+  const [hideSeen, setHideSeen] = useState(saved.hideSeen ?? true);
+  const [moreFilters, setMoreFilters] = useState(Boolean(saved.language || saved.minRating || saved.provider));
+  const [services, setServices] = useState([]);
+  const type = BROWSE_TYPES.find((t) => t.id === f.typeId) || BROWSE_TYPES[0];
+  // Refresh starts further into the results each time, so the grid is genuinely new.
+  const startPage = 1 + ((round * 3) % 15);
+  const key = JSON.stringify([...FILTER_KEYS.map((k) => f[k]), startPage]);
+  const [grid, setGrid] = useState(() => gridCache.get(key) || { items: [], page: 0, total: 1 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  const type = BROWSE_TYPES.find((t) => t.id === typeId) || BROWSE_TYPES[0];
-  const genres = type.media === 'movie' ? MOVIE_GENRES : TV_GENRES;
-  const year = /^\d{4}$/.test(when) ? when : null;
-  const decade = /^\d{4}s$/.test(when) ? when.slice(0, 4) : null;
-
-  useEffect(() => {
-    viewMemory.set('browse', { typeId, when, genre, sort, hideSeen });
-  }, [typeId, when, genre, sort, hideSeen]);
-
-  // Titles already in your list are hidden as each page loads. Ones you tick now stay
-  // on screen with a check, so the grid doesn't jump around while you work through it.
   const lookupRef = useRef(lookup);
   lookupRef.current = lookup;
   const seenAtLoad = useRef(new Set());
+  const taste = useRef(null);
+  if (!taste.current && entries) taste.current = tasteProfile(entries, hidden);
+
+  useEffect(() => {
+    viewMemory.set('browse', { ...f, hideSeen });
+  }, [f, hideSeen]);
+
+  useEffect(() => {
+    streamingServices(type.media).then(setServices).catch(() => setServices([]));
+  }, [type.media]);
+
+  const year = /^\d{4}$/.test(f.when) ? f.when : null;
+  const decade = /^\d{4}s$/.test(f.when) ? f.when.slice(0, 4) : null;
 
   const load = useCallback(
     async (page) => {
       setBusy(true);
       setError(null);
       try {
-        const r = await browseTitles({ typeId, year, decade, genre, sort, page });
-        if (page === 1) seenAtLoad.current = new Set();
+        const tasteGenres = f.sort === 'taste' && taste.current ? tasteGenreIds(taste.current, type.media, 3) : [];
+        const r = await browseTitles({ ...f, year, decade, page, tasteGenres });
         for (const i of r.items) if (lookupRef.current(i)) seenAtLoad.current.add(`${i.mediaType}:${i.sourceId}`);
-        setPages((p) => ({ items: page === 1 ? r.items : p.items.concat(r.items), page, total: r.totalPages }));
+        setGrid((g) => {
+          const next = { items: page === startPage ? r.items : g.items.concat(r.items), page, total: r.totalPages };
+          gridCache.set(key, next);
+          return next;
+        });
       } catch (e) {
         setError(e.message);
       } finally {
         setBusy(false);
       }
     },
-    [typeId, year, decade, genre, sort]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key]
   );
 
   useEffect(() => {
-    setPages({ items: [], page: 0, total: 1 });
-    load(1);
-  }, [load]);
+    const cached = gridCache.get(key);
+    if (cached) {
+      for (const i of cached.items) if (lookupRef.current(i)) seenAtLoad.current.add(`${i.mediaType}:${i.sourceId}`);
+      setGrid(cached);
+      return;
+    }
+    seenAtLoad.current = new Set();
+    setGrid({ items: [], page: 0, total: 1 });
+    load(startPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
-  // Keep the grid full when most of a page is already in your list.
-  const shown = pages.items.filter((i, idx, arr) => arr.findIndex((x) => x.sourceId === i.sourceId) === idx && (!hideSeen || !seenAtLoad.current.has(`${i.mediaType}:${i.sourceId}`)));
+  const shown = grid.items.filter(
+    (i, idx, arr) => arr.findIndex((x) => x.sourceId === i.sourceId && x.mediaType === i.mediaType) === idx && (!hideSeen || !seenAtLoad.current.has(`${i.mediaType}:${i.sourceId}`))
+  );
   useEffect(() => {
-    if (!busy && hideSeen && pages.page > 0 && pages.page < pages.total && pages.page < 10 && shown.length < 12) load(pages.page + 1);
-  }, [busy, hideSeen, pages.page, pages.total, shown.length, load]);
+    if (!busy && hideSeen && grid.page >= startPage && grid.page < grid.total && grid.page < startPage + 8 && shown.length < 12) load(grid.page + 1);
+  }, [busy, hideSeen, grid.page, grid.total, shown.length, load, startPage]);
 
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value, ...(k === 'typeId' ? { genre: '', provider: '' } : {}) }));
+  const genres = type.media === 'movie' ? MOVIE_GENRES : TV_GENRES;
   const years = Array.from({ length: new Date().getFullYear() - 1949 }, (_, i) => new Date().getFullYear() - i);
+  const activeExtras = [f.language, f.minRating, f.provider].filter(Boolean).length;
 
   return (
     <>
       <div className="stack">
         <div className="chips">
           {types.map((t) => (
-            <button key={t.id} className={`chip ${typeId === t.id ? 'on' : ''}`} onClick={() => (setTypeId(t.id), setGenre(''))}>
+            <button key={t.id} className={`chip ${f.typeId === t.id ? 'on' : ''}`} onClick={() => set('typeId')({ target: { value: t.id } })}>
               {t.label}
             </button>
           ))}
         </div>
         <div className="toolbar">
-          <select id="browse-when" className="select" value={when} onChange={(e) => setWhen(e.target.value)} aria-label="Year or decade">
+          <select id="browse-sort" className="select" value={f.sort} onChange={set('sort')} aria-label="Sort">
+            {BROWSE_SORTS.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <select id="browse-when" className="select" value={f.when} onChange={set('when')} aria-label="Year or decade">
             <option value="">Any year</option>
             <optgroup label="Decades">
               {DECADES.map((d) => (
@@ -213,10 +347,10 @@ function Browse() {
               ))}
             </optgroup>
           </select>
-          <select id="browse-genre" className="select" value={genre} onChange={(e) => setGenre(e.target.value)} aria-label="Genre">
+          <select id="browse-genre" className="select" value={f.genre} onChange={set('genre')} aria-label="Genre">
             <option value="">Every genre</option>
             {Object.entries(genres)
-              .filter(([id]) => !(type.params.with_genres === '16' && id === '16'))
+              .filter(([id]) => id !== '16' && !['10767', '10763', '10764'].includes(id))
               .sort((a, b) => a[1].localeCompare(b[1]))
               .map(([id, name]) => (
                 <option key={id} value={id}>
@@ -224,13 +358,9 @@ function Browse() {
                 </option>
               ))}
           </select>
-          <select id="browse-sort" className="select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort">
-            {BROWSE_SORTS.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
+          <button className={`btn sm ${moreFilters ? 'primary' : ''}`} onClick={() => setMoreFilters(!moreFilters)}>
+            More filters{activeExtras ? ` (${activeExtras})` : ''}
+          </button>
           <label className="row small">
             <span className="toggle">
               <input id="hide-seen" type="checkbox" checked={hideSeen} onChange={(e) => setHideSeen(e.target.checked)} />
@@ -239,6 +369,40 @@ function Browse() {
             Hide what&apos;s in my list
           </label>
         </div>
+        {moreFilters && (
+          <div className="toolbar">
+            <select id="browse-provider" className="select" value={f.provider} onChange={set('provider')} aria-label="Where to watch">
+              <option value="">Any streaming service</option>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>
+                  On {s.name}
+                </option>
+              ))}
+            </select>
+            <select id="browse-language" className="select" value={f.language} onChange={set('language')} aria-label="Original language">
+              <option value="">Any language</option>
+              {LANGUAGES.map(([code, name]) => (
+                <option key={code} value={code}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <select id="browse-rating" className="select" value={f.minRating} onChange={set('minRating')} aria-label="Minimum rating">
+              <option value="">Any rating</option>
+              {[6, 7, 7.5, 8, 8.5].map((r) => (
+                <option key={r} value={r}>
+                  Rated {r}+
+                </option>
+              ))}
+            </select>
+            {activeExtras > 0 && (
+              <button className="btn sm ghost" onClick={() => setF((x) => ({ ...x, language: '', minRating: '', provider: '' }))}>
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+        {f.sort === 'taste' && !taste.current?.genres.length && <p className="hint">Add and rate a few titles so we can learn your taste. Until then this shows the best known.</p>}
       </div>
 
       {error && <p className="notice error">{error}</p>}
@@ -250,17 +414,99 @@ function Browse() {
         {busy && Array.from({ length: 12 }, (_, i) => <div key={`s${i}`} className="skeleton" />)}
       </div>
 
-      {!busy && pages.page < pages.total && (
+      {!busy && grid.page < grid.total && shown.length > 0 && (
         <div className="row" style={{ justifyContent: 'center' }}>
-          <button className="btn" onClick={() => load(pages.page + 1)}>
+          <button className="btn" onClick={() => load(grid.page + 1)}>
             Show more
           </button>
         </div>
       )}
-      {!busy && !shown.length && !error && <p className="muted">You have seen everything here. Try another year or genre.</p>}
+      {!busy && !shown.length && !error && <p className="muted">Nothing new here. Try Refresh, another year, or fewer filters.</p>}
     </>
   );
 }
+
+/* ---------------- Studios, franchises and people ---------------- */
+
+const STUDIOS = [
+  { group: 'Franchises & studios', names: ['Marvel Studios', 'DC Studios', 'Lucasfilm', 'Pixar', 'Walt Disney Pictures', 'Warner Bros. Pictures', 'Universal Pictures', 'Paramount Pictures', '20th Century Studios', 'Columbia Pictures', 'Legendary Pictures', 'Lionsgate'] },
+  { group: 'Animation', names: ['Studio Ghibli', 'DreamWorks Animation', 'Illumination', 'Walt Disney Animation Studios', 'Sony Pictures Animation', 'Cartoon Network Studios', 'Nickelodeon Animation Studio', 'Aardman'] },
+  { group: 'Anime studios', names: ['MAPPA', 'ufotable', 'Kyoto Animation', 'Wit Studio', 'Bones', 'Madhouse', 'Toei Animation', 'Production I.G', 'CloverWorks', 'A-1 Pictures'] },
+  { group: 'Indian & Pakistani', names: ['Yash Raj Films', 'Dharma Productions', 'Red Chillies Entertainment', 'T-Series', 'Hombale Films', 'Excel Entertainment', 'Aamir Khan Productions', 'Balaji Telefilms', 'Mythri Movie Makers', 'Hum Network'] },
+  { group: 'Korea, Japan, Turkey & more', names: ['Studio Dragon', 'CJ ENM', 'JTBC Studios', 'Toho', 'Ay Yapım', 'Tims & B Productions', 'Gold Coast Studio'] },
+  { group: 'Prestige & streaming', names: ['A24', 'Blumhouse Productions', 'HBO', 'Netflix', 'Amazon MGM Studios', 'Apple Studios', 'Searchlight Pictures', 'Neon', 'Focus Features', 'BBC Studios'] },
+];
+
+function Studios() {
+  const router = useRouter();
+  const [q, setQ] = useState(viewMemory.get('people:q') || '');
+  const [people, setPeople] = useState([]);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    viewMemory.set('people:q', q);
+    if (q.trim().length < 2) {
+      setPeople([]);
+      return;
+    }
+    const t = setTimeout(() => searchPeople(q.trim()).then(setPeople).catch(() => setPeople([])), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  async function openStudio(name) {
+    setBusy(name);
+    setError(null);
+    try {
+      const c = await findCompany(name);
+      if (!c) throw new Error(`Couldn't find ${name}.`);
+      router.push(`/studio/${c.id}`);
+    } catch (e) {
+      setError(e.message);
+      setBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <section className="section">
+        <h2 className="h-section">Actors, directors and writers</h2>
+        <input id="people-search" className="input search-input" placeholder="Search any name, from any country" value={q} onChange={(e) => setQ(e.target.value)} />
+        {people.length > 0 && (
+          <div className="people-grid">
+            {people.slice(0, 18).map((p) => (
+              <Link key={p.id} href={`/person/${p.id}`} className="person-card">
+                <span className="cast-photo">{p.photo ? <img src={p.photo} alt="" loading="lazy" /> : <span>{p.name[0]}</span>}</span>
+                <span className="person-card-text">
+                  <b>{p.name}</b>
+                  <span className="muted small">{[p.dept === 'Acting' ? 'Actor' : p.dept, p.knownFor.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {error && <p className="notice error">{error}</p>}
+
+      {STUDIOS.map((g) => (
+        <section key={g.group} className="section">
+          <h2 className="h-section">{g.group}</h2>
+          <div className="studio-grid">
+            {g.names.map((n) => (
+              <button key={n} className="studio-card" onClick={() => openStudio(n)} disabled={busy === n}>
+                <span>{busy === n ? 'Opening…' : n}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+      <p className="hint">Looking for a franchise in order, like Star Wars or Harry Potter? Open any film in it and tap &quot;See the watch order&quot;.</p>
+    </>
+  );
+}
+
+/* ---------------- New ---------------- */
 
 function New() {
   const { profile } = useEntries();

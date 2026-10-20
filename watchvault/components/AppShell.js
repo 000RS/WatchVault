@@ -28,9 +28,9 @@ export function BrandMark() {
     <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
       <defs>
         <linearGradient id="wv-gold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#f6e2b0" />
-          <stop offset="0.45" stopColor="#d9b46c" />
-          <stop offset="1" stopColor="#a9803f" />
+          <stop offset="0" stopColor="#ff5c8a" />
+          <stop offset="0.5" stopColor="#b45cff" />
+          <stop offset="1" stopColor="#3fc8ff" />
         </linearGradient>
       </defs>
       <circle cx="16" cy="16" r="14.5" fill="none" stroke="url(#wv-gold)" strokeWidth="1.2" />

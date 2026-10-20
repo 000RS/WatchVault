@@ -9,7 +9,8 @@ import { toCsv } from '@/lib/list';
 import { DEFAULT_SECTIONS, HOME_SECTIONS } from '@/components/Vault';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
-import { linkAnimeToTmdb } from '@/lib/linkAnime';
+import LinkAnimeBanner from '@/components/LinkAnimeBanner';
+import TidyUp from '@/components/TidyUp';
 
 export default function SettingsPage() {
   const { entries, profile } = useEntries();
@@ -223,21 +224,6 @@ export default function SettingsPage() {
 }
 
 function DataTools({ entries }) {
-  const [linking, setLinking] = useState(null);
-  const ani = entries.filter((e) => e.source === 'anilist');
-
-  async function linkAnime() {
-    setLinking({ done: 0, total: ani.length });
-    try {
-      const { linked, kept } = await linkAnimeToTmdb((done, total) => setLinking({ done, total }));
-      toast(`Linked ${linked} anime to TMDB${kept ? `. ${kept} stay on AniList` : ''}.`);
-    } catch (e) {
-      toast(e.message, { kind: 'error' });
-    } finally {
-      setLinking(null);
-    }
-  }
-
   function downloadCsv() {
     const blob = new Blob([toCsv(entries)], { type: 'text/csv' });
     const a = document.createElement('a');
@@ -248,25 +234,11 @@ function DataTools({ entries }) {
   }
 
   return (
-    <section>
+    <section className="stack">
       <h2 className="group-title">Your data</h2>
+      <LinkAnimeBanner />
+      <TidyUp always />
       <div className="group">
-        {ani.length > 0 && (
-          <div className="group-row">
-            <div>
-              <b>Link {ani.length} anime to TMDB</b>
-              <span className="muted small">Gives them full seasons and counts them in rankings. Progress, ratings and notes are kept. Titles TMDB doesn&apos;t have stay as they are.</span>
-              {linking && (
-                <div className="progressbar" style={{ marginTop: 8 }}>
-                  <i style={{ width: `${(linking.done / linking.total) * 100}%` }} />
-                </div>
-              )}
-            </div>
-            <button className="btn sm" disabled={Boolean(linking)} onClick={linkAnime}>
-              {linking ? 'Linking…' : 'Link now'}
-            </button>
-          </div>
-        )}
         <div className="group-row">
           <div>
             <b>Download your list</b>

@@ -68,8 +68,14 @@ export function clearStore() {
   emit();
 }
 
-export async function refresh() {
-  if (!state.userId || state.refreshing) return;
+let refreshing = null;
+export function refresh() {
+  if (!state.userId) return Promise.resolve();
+  if (!refreshing) refreshing = doRefresh().finally(() => (refreshing = null));
+  return refreshing;
+}
+
+async function doRefresh() {
   state.refreshing = true;
   emit();
   try {
@@ -291,3 +297,25 @@ export const hiddenCategories = (profile) => new Set(profile?.hidden_categories 
 
 /* Remember list filters and scroll position while moving around the app. */
 export const viewMemory = new Map();
+
+/** Put the page back where it was, a few times while it settles, unless you start scrolling. */
+export function restoreScroll(y) {
+  if (!y || typeof window === 'undefined') return undefined;
+  try {
+    history.scrollRestoration = 'manual';
+  } catch {
+    /* older browsers */
+  }
+  let cancelled = false;
+  const stop = () => (cancelled = true);
+  window.addEventListener('wheel', stop, { once: true, passive: true });
+  window.addEventListener('touchstart', stop, { once: true, passive: true });
+  const go = () => !cancelled && window.scrollTo(0, y);
+  requestAnimationFrame(go);
+  const timers = [setTimeout(go, 120), setTimeout(go, 400)];
+  return () => {
+    timers.forEach(clearTimeout);
+    window.removeEventListener('wheel', stop);
+    window.removeEventListener('touchstart', stop);
+  };
+}
