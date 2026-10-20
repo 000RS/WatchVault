@@ -1034,3 +1034,11 @@ a.group-row:hover { background: var(--surface); color: var(--gold-hi); }
   .episode-actions .chip { padding: 5px 10px; }
   .filter-bar { position: static; }
 }
+.search-block { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.search-bar { padding-right: 6px; }
+.search-go { min-height: 42px; padding: 8px 20px; flex: none; }
+.search-filters { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+.search-filters .chips { overflow-x: auto; scrollbar-width: none; }
+@media (max-width: 640px) { .search-go { padding: 8px 14px; } }
+.explore-nav { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; min-width: 0; }
+.explore-nav .tabs { min-width: 0; }

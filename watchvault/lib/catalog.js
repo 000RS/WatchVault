@@ -575,3 +575,77 @@ export async function animeAiring(days = 7) {
   );
   return (d.Page?.airingSchedules || []).filter((s) => s.media && !s.media.isAdult).map((s) => ({ at: s.airingAt * 1000, episode: s.episode, title: normalizeAni(s.media) }));
 }
+
+/* ---------------- Browse by filters alone (no search words) ---------------- */
+
+const GENRE_NAMES = ['Action', 'Adventure', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery', 'Romance', 'Science Fiction', 'Thriller', 'War', 'Western'];
+export const SEARCH_GENRES = GENRE_NAMES;
+
+/**
+ * Titles that match filters, with or without search words: "Punjabi films", "Korean series from 2023".
+ * f = { type: all|movie|tv|anime, language, country, year, genre, page }
+ */
+export async function discoverTitles({ type = 'all', language, country, year, genre, page = 1 }) {
+  const medias = type === 'movie' ? ['movie'] : type === 'tv' || type === 'anime' ? ['tv'] : ['movie', 'tv'];
+  const runs = medias.map(async (media) => {
+    const p = { page: String(page), include_adult: 'false', sort_by: 'popularity.desc', 'vote_count.gte': media === 'movie' ? '15' : '5' };
+    if (type === 'anime') Object.assign(p, { with_genres: '16', with_origin_country: 'JP' });
+    else if (media === 'tv') p.without_genres = '10767,10763,10764';
+    if (language) p.with_original_language = language;
+    if (country) p.with_origin_country = country;
+    if (year) p[media === 'movie' ? 'primary_release_year' : 'first_air_date_year'] = String(year);
+    if (genre) {
+      const ids = genreIdsFor([genre], media);
+      if (ids.length) p.with_genres = [p.with_genres, ids[0]].filter(Boolean).join(',');
+    }
+    const d = await tmdb(`discover/${media}`, p);
+    return { items: (d.results || []).map((r) => normalizeTmdb(r, media)).filter((i) => i.poster), pages: d.total_pages || 1 };
+  });
+  const out = await Promise.all(runs);
+  // Interleave films and series so "everything" shows both.
+  const items = [];
+  for (let i = 0; i < 20; i++) for (const o of out) if (o.items[i]) items.push(o.items[i]);
+  return { items, more: out.some((o) => page < Math.min(o.pages, 500)) };
+}
+
+const TYPE_WORDS = {
+  movie: 'movie', movies: 'movie', film: 'movie', films: 'movie', cinema: 'movie',
+  series: 'tv', show: 'tv', shows: 'tv', drama: 'tv', dramas: 'tv', serial: 'tv', serials: 'tv', tv: 'tv', webseries: 'tv',
+  anime: 'anime', animes: 'anime',
+};
+const LANG_WORDS = {
+  ...Object.fromEntries(LANGUAGES.map(([c, n]) => [n.toLowerCase(), c])),
+  bollywood: 'hi', tollywood: 'te', kollywood: 'ta', mollywood: 'ml', sandalwood: 'kn', pollywood: 'pa', lollywood: 'ur',
+  pakistani: 'ur', indian: 'hi', korean: 'ko', kdrama: 'ko', kdramas: 'ko', japanese: 'ja', jdrama: 'ja', chinese: 'zh', cdrama: 'zh',
+  turkish: 'tr', dizi: 'tr', spanish: 'es', french: 'fr', german: 'de', thai: 'th', arabic: 'ar', persian: 'fa', iranian: 'fa', filipino: 'tl',
+};
+const COUNTRY_FOR_WORD = { pakistani: 'PK', indian: 'IN', bollywood: 'IN', tollywood: 'IN', kollywood: 'IN', mollywood: 'IN', sandalwood: 'IN', pollywood: 'IN', lollywood: 'PK', kdrama: 'KR', kdramas: 'KR', korean: 'KR', turkish: 'TR', dizi: 'TR' };
+const DRAMA_WORDS = new Set(['kdrama', 'kdramas', 'jdrama', 'cdrama', 'dizi']);
+
+/**
+ * Reads filter words out of a search: "punjabi movies" → { language: 'pa', type: 'movie', rest: '' }.
+ * Only applies when the leftover words are a genre or nothing, so real titles ("Korean Odyssey") still search normally.
+ */
+export function readFilterWords(text) {
+  const words = String(text || '').toLowerCase().replace(/[-–]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const found = {};
+  const rest = [];
+  for (const w of words) {
+    const clean = w.replace(/[^a-z0-9]/g, '');
+    if (/^(19|20)\d\d$/.test(clean)) found.year = clean;
+    else if (TYPE_WORDS[clean]) found.type = TYPE_WORDS[clean];
+    else if (LANG_WORDS[clean]) {
+      found.language = LANG_WORDS[clean];
+      if (COUNTRY_FOR_WORD[clean]) found.country = COUNTRY_FOR_WORD[clean];
+      if (DRAMA_WORDS.has(clean)) found.type = 'tv';
+    } else if (!['in', 'from', 'the', 'best', 'top', 'good', 'new', 'latest', 'popular', 'old'].includes(clean)) rest.push(w);
+  }
+  const genre = GENRE_NAMES.find((g) => g.toLowerCase() === rest.join(' ') || (rest.join(' ') === 'scifi' && g === 'Science Fiction'));
+  if (rest.length && !genre) return null;
+  if (!found.type && !found.language && !found.year && !genre) return null;
+  // "Indian" and "Pakistani" mean the country more than one language.
+  if (found.country === 'IN' && /indian/.test(words.join(' '))) delete found.language;
+  if (found.country === 'PK' && /pakistani/.test(words.join(' '))) delete found.language;
+  return { ...found, ...(genre ? { genre } : {}) };
+}

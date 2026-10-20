@@ -10,6 +10,7 @@ import {
   bestInLanguage,
   browseTitles,
   findCompany,
+  readFilterWords,
   currentAnimeSeason,
   newShelves,
   normalizeTmdb,
@@ -28,7 +29,7 @@ import Shelf from '@/components/Shelf';
 import { TitleTile } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
 import AskPanel, { useAiEnabled } from '@/components/Ask';
-import SearchResults, { COUNTRIES } from '@/components/SearchResults';
+import SearchResults, { COUNTRIES, EMPTY_FILTERS, SearchFilters, filtersActive } from '@/components/SearchResults';
 
 const TABS = [
   { id: 'foryou', label: 'For you', blurb: 'Rows picked from what you love. Tick anything you have already seen.' },
@@ -45,7 +46,9 @@ export default function ExplorePage() {
   const mem = viewMemory.get(MEM) || {};
   const [tab, setTab] = useState(mem.tab || 'foryou');
   const [round, setRound] = useState(mem.round || 0);
+  const [draft, setDraft] = useState(mem.q || '');
   const [q, setQ] = useState(mem.q || '');
+  const [sf, setSf] = useState(mem.sf || EMPTY_FILTERS);
   const searchRef = useRef(null);
   const ai = useAiEnabled();
 
@@ -53,13 +56,36 @@ export default function ExplorePage() {
     const sp = new URLSearchParams(window.location.search);
     const t = sp.get('tab');
     if (t && TABS.some((x) => x.id === t)) setTab(t);
-    if (sp.get('q')) setQ(sp.get('q'));
+    if (sp.get('q')) submit(sp.get('q'));
     if (sp.get('q') || sp.get('search')) searchRef.current?.focus();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), q });
-  }, [q]);
-  const searching = q.trim().length > 0;
+    viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), q, sf });
+  }, [q, sf]);
+  // Typing searches by itself after a pause (2+ letters); Search or Enter runs it straight away, even for one letter.
+  useEffect(() => {
+    const t = draft.trim();
+    if (t === q.trim()) return;
+    if (!t) return setQ('');
+    if (t.length < 2) return;
+    const timer = setTimeout(() => setQ(t), 450);
+    return () => clearTimeout(timer);
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function submit(text) {
+    const t = String(text ?? draft).trim();
+    // "punjabi movies", "korean dramas 2023", "telugu action films" become filters.
+    const words = readFilterWords(t);
+    if (words) {
+      setSf({ ...EMPTY_FILTERS, ...words });
+      setQ('');
+      setDraft('');
+      return;
+    }
+    setDraft(t);
+    setQ(t);
+  }
+  const searching = q.trim().length > 0 || filtersActive(sf);
   useEffect(() => {
     viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), tab, round });
   }, [tab, round]);
@@ -76,25 +102,34 @@ export default function ExplorePage() {
   const current = tabs.find((t) => t.id === tab) || tabs[0];
 
   const searchBar = (
-    <form className="search-bar" role="search" onSubmit={(e) => (e.preventDefault(), searchRef.current?.blur())}>
-      <Icon.Search />
-      <input
-        ref={searchRef}
-        id="explore-search"
-        className="search-bar-input"
-        type="search"
-        placeholder="Search titles, actors, directors… any spelling"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        autoComplete="off"
-        enterKeyHint="search"
-      />
+    <div className="search-block">
+      <form className="search-bar" role="search" onSubmit={(e) => (e.preventDefault(), submit(), searchRef.current?.blur())}>
+        <Icon.Search />
+        <input
+          ref={searchRef}
+          id="explore-search"
+          className="search-bar-input"
+          type="search"
+          placeholder="Search titles or actors"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          autoComplete="off"
+          enterKeyHint="search"
+        />
+        {draft && (
+          <button type="button" className="icon-btn" aria-label="Clear search" onClick={() => (setDraft(''), setQ(''), searchRef.current?.focus())}>
+            <Icon.Close width={16} height={16} />
+          </button>
+        )}
+        <button className="btn primary search-go">Search</button>
+      </form>
+      <SearchFilters f={sf} onChange={setSf} />
       {searching && (
-        <button type="button" className="icon-btn" aria-label="Clear search" onClick={() => (setQ(''), searchRef.current?.focus())}>
-          <Icon.Close width={16} height={16} />
+        <button type="button" className="as-text-link small" style={{ justifySelf: 'start' }} onClick={() => (setDraft(''), setQ(''), setSf(EMPTY_FILTERS))}>
+          Back to Explore
         </button>
       )}
-    </form>
+    </div>
   );
 
   if (searching)
@@ -107,7 +142,7 @@ export default function ExplorePage() {
         </header>
         {searchBar}
         <div className="page-enter" data-explore="search" style={{ gap: 'inherit' }}>
-          <SearchResults q={q} onPick={setQ} />
+          <SearchResults q={q} f={sf} onPick={(t) => (setDraft(t), setQ(t))} />
         </div>
       </>
     );
@@ -117,24 +152,24 @@ export default function ExplorePage() {
       <header className="page-head">
         <div className="head-text">
           <h1 className="h-page">Explore</h1>
-          <p className="muted">{current.blurb}</p>
-        </div>
-        <div className="row">
-          {!['ask', 'studios', 'season'].includes(current.id) && (
-            <button className="btn sm" onClick={() => (setRound((r) => r + 1), window.scrollTo({ top: 0 }))} title="Show fresh titles">
-              <Icon.Refresh width={16} height={16} /> Refresh
-            </button>
-          )}
-          <div className="tabs" role="tablist">
-            {tabs.map((t) => (
-              <button key={t.id} role="tab" aria-selected={current.id === t.id} className={`tab-btn ${current.id === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
-                {t.label}
-              </button>
-            ))}
-          </div>
         </div>
       </header>
       {searchBar}
+      <div className="explore-nav">
+        <div className="tabs" role="tablist">
+          {tabs.map((t) => (
+            <button key={t.id} role="tab" aria-selected={current.id === t.id} className={`tab-btn ${current.id === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {!['ask', 'studios', 'season'].includes(current.id) && (
+          <button className="btn sm" onClick={() => (setRound((r) => r + 1), window.scrollTo({ top: 0 }))} title="Show fresh titles">
+            <Icon.Refresh width={16} height={16} /> Refresh
+          </button>
+        )}
+      </div>
+      <p className="muted">{current.blurb}</p>
       <div className="page-enter" data-explore={current.id} style={{ gap: 'inherit' }}>
         {current.id === 'foryou' && <ForYou key={`f${round}`} round={round} />}
         {current.id === 'browse' && <Browse key={`b${round}`} round={round} />}
