@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useEntries, hiddenCategories, saveProfile } from '@/lib/store';
 import { fetchActivity, fetchTopLists, friendships } from '@/lib/social';
-import { DEFAULT_SECTIONS, EntryRow, TasteCard, TopPodiums, VaultHero } from '@/components/Vault';
+import { EntryRow, TasteCard, TopPodiums, VaultHero, withDefaults } from '@/components/Vault';
+import { GoalsCard, UpNext } from '@/components/UpNext';
 import { ActivityList } from '@/components/ActivityList';
 import { useAuth } from '@/components/AppShell';
 import { toast } from '@/lib/toast';
@@ -32,7 +33,7 @@ export default function HomePage() {
   const hidden = hiddenCategories(profile);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const visible = useMemo(() => (entries || []).filter((e) => !hidden.has(e.category)), [entries, profile?.hidden_categories]);
-  const sections = profile?.home_sections || DEFAULT_SECTIONS;
+  const sections = withDefaults(profile?.home_sections);
 
   if (error && !entries) return <p className="notice error">{error}</p>;
   if (loading) return <div className="skeleton" style={{ height: 380, aspectRatio: 'auto' }} />;
@@ -58,12 +59,14 @@ export default function HomePage() {
   const shareUrl = profile?.username && typeof window !== 'undefined' ? `${window.location.origin}/u/${profile.username}` : null;
 
   const blocks = {
+    upnext: <UpNext key="upnext" entries={visible} />,
+    goals: <GoalsCard key="goals" entries={entries} profile={profile} />,
     continue: (
       <EntryRow
         key="continue"
         title="Continue watching"
         href="/list"
-        entries={visible.filter((e) => e.status === 'watching')}
+        entries={visible.filter((e) => e.status === 'watching' && (e.media_type === 'movie' || !e.season_episode_counts?.length))}
       />
     ),
     tops: <TopPodiums key="tops" entries={visible} topLists={topLists} size={showcaseSize} hidden={hidden} editable />,

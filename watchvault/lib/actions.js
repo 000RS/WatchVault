@@ -14,10 +14,12 @@ import { mergeInto } from './linkAnime';
 const RANK = { completed: 8, watching: 7, on_hold: 6, stopped: 5, tried: 4, dropped: 3, clips: 2, plan: 1 };
 
 export async function addTitle(title, status = 'completed', extra = {}) {
+  const { fields = {}, ...progress } = extra;
   const row = {
     ...snapshotFromTitle(title),
     category: title.category,
-    ...progressFor(title, { status, ...extra }),
+    ...progressFor(title, { status, ...progress }),
+    ...fields,
   };
   // Same anime already saved from AniList: upgrade that entry instead of adding a second copy.
   const twin = findAnimeTwin(getStoreEntries(), title);
@@ -83,3 +85,35 @@ export const titleHref = (source, mediaType, id) => `/title/${source}/${mediaTyp
 export const entryHref = (e) => titleHref(e.source, e.media_type, e.source_id);
 export const itemHref = (t) => titleHref(t.source, t.mediaType, t.sourceId);
 export { keyOfTitle };
+
+/**
+ * Fetch cast, crew and studios for titles that don't have them yet, so Stats can rank people.
+ * Runs a few at a time and reports progress. Stops when `signal.aborted` is set.
+ */
+export async function backfillCredits(entries, { onProgress, signal, concurrency = 4 } = {}) {
+  const { creditsFor } = await import('./catalog');
+  const todo = entries.filter((e) => !e.credits && !String(e.id).startsWith('tmp-'));
+  let done = 0;
+  let failed = 0;
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (i < todo.length && !signal?.aborted) {
+        const e = todo[i++];
+        try {
+          const c = await creditsFor(e.source, e.media_type === 'anime' ? 'tv' : e.media_type, e.source_id);
+          const patch = { credits: c };
+          if (c.vote && !e.tmdb_rating) patch.tmdb_rating = Number(Number(c.vote).toFixed(1));
+          if (c.date && !e.release_date) patch.release_date = c.date;
+          if (c.rt && !e.runtime) patch.runtime = c.rt;
+          await updateEntry(e.id, patch, { delay: 0 });
+        } catch {
+          failed++;
+        }
+        done++;
+        onProgress?.({ done, total: todo.length, failed });
+      }
+    })
+  );
+  return { done, failed, total: todo.length };
+}

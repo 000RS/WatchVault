@@ -2,6 +2,45 @@
 
 A personal vault for everything you watch: movies, series, anime and dramas from every country, tracked down to the episode. Share it with friends like a profile.
 
+## Upgrading to version 4
+
+Your list stays exactly as it is. Everything here is free, with no card needed anywhere.
+
+1. **Database (once):** Supabase → **SQL Editor** → **New query** → paste [`supabase/upgrade_v4.sql`](supabase/upgrade_v4.sql) → **Run**. (Coming from an older version? Run `upgrade_v2.sql` and `upgrade_v3.sql` first, in that order.)
+2. **Make yourself the admin** so feedback reaches you. In the same SQL Editor, run this one line with the email you sign in with:
+   ```sql
+   update public.profiles set is_admin = true where id = (select id from auth.users where email = 'you@example.com');
+   ```
+   Then **Feedback inbox** appears in your menu. Nobody can make themselves admin from the app.
+3. **Code:** upload everything from the new `watchvault` folder into your GitHub `watchvault` folder (including the new `public` folder and `vercel.json`) and commit. Vercel redeploys by itself.
+4. Open the site, go to **Settings** and pick your streaming services and your goals for the year. Open **Stats → People** once so it can gather cast and crew for your titles.
+
+### Optional extras (all free)
+
+| What | How |
+|---|---|
+| **Feedback pings on your phone** | In Discord, make a server (or use one), then channel settings → **Integrations → Webhooks → New webhook → Copy URL**. In Vercel → Settings → Environment Variables, add `FEEDBACK_WEBHOOK_URL` with that URL and redeploy. Without it, feedback still lands in your Feedback inbox. |
+| **New-episode notifications** | On your computer, run `npx web-push generate-vapid-keys` once. In Vercel add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (the two keys), `SUPABASE_SERVICE_ROLE_KEY` (Supabase → Project Settings → API Keys → service_role, keep it secret) and `CRON_SECRET` (any long random text). Redeploy. People then turn on **New episode alerts** in Settings. Vercel runs the check once a day for free. |
+
+### What's new in version 4
+
+- **New look:** Graphite & Oxblood, a calm dark palette with one deep red accent.
+- **Explore + Search in one:** a search bar at the top of Explore with filters for type, language, country and year. Tick off gains country and episode/film length filters and **On my services**. New **Anime season** tab with every anime airing this season, and past seasons.
+- **Details panel:** the description with Read more, **Watched today**, your custom lists, reviews with a spoiler switch, tags, a rewatch counter, and an **episode guide** where you tick episodes, rate them, pick a favourite and mark whole seasons.
+- **My List:** filter by genre, language, country, decade, your rating and tags; group by genre, language or decade; sort by TMDB rating, length or most rewatched; tag many titles at once.
+- **Home:** **Up next** with a one-tap "Watched" for the next episode, and your goals for the year.
+- **Calendar:** new episodes of your shows, release dates of films you plan to watch, and anime airing this week.
+- **Diary:** every day you watched something, with a year heatmap, streaks, and manual logging. Ticking episodes, finishing titles and rewatches log themselves.
+- **Stats dashboard:** filters for period, shelf, format and language over everything; tabs for Overview, People (actors, actresses, directors, writers, composers, studios), When you watch (hours by month, weekdays, every day of the year, release years, decades, film lengths), Taste (genres, genres you rate highest, languages, countries, how you rate, **you vs the world**, hottest takes, rewatches, tags) and Canon. Badges to unlock. Every chart shows details on hover or tap.
+- **Wrapped:** a story of your year (hours, finishes, top titles, genre, the actor and actress of your year, your storyteller, countries, biggest month and binge day, highest rated, personality) and a share image. Before December it's your year so far.
+- **Lists:** make any list (ranked or not, public or private) and share it.
+- **Friends:** taste match % on profiles, "they loved it, you haven't seen it", reviews, public lists, follow public vaults, reactions and spoiler-safe comments on activity, and a leaderboard.
+- **Blends:** a shared watchlist with friends, with suggestions none of you have seen and voting for tonight's pick.
+- **Imports:** Trakt, TV Time, Simkl, Letterboxd (with watch dates, rewatches and reviews) and IMDb, matched straight from their IDs. Full JSON backup in Settings.
+- **Install as an app** on your phone (works offline for your list), and optional new-episode notifications.
+- **Feedback** in the menu: bug reports and feature ideas go straight to your inbox.
+- **Ask:** quick picks like "I've got 90 minutes" and "something on my services".
+
 ## Upgrading to version 3
 
 Your list stays exactly as it is. Everything here is free.
@@ -64,7 +103,7 @@ Your list is stored in Supabase, not in the code, so nothing you've added is los
 
 You need free accounts at **Supabase** (database), **TMDB** (title data) and **Vercel** (hosting).
 
-1. **Supabase:** create a project. In **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/upgrade_v2.sql`](supabase/upgrade_v2.sql). Copy the Project URL and the anon public key from **Project Settings → API Keys**.
+1. **Supabase:** create a project. In **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql), then `upgrade_v2.sql`, `upgrade_v3.sql` and `upgrade_v4.sql` in that order. Copy the Project URL and the anon public key from **Project Settings → API Keys**.
 2. **TMDB:** sign up, then **Settings → API**, and copy the **API Read Access Token**.
 3. **Vercel:** import the GitHub repo. Set **Root Directory** to the folder that has `package.json`, and add these environment variables:
 
@@ -91,6 +130,7 @@ npm run dev                  # http://localhost:3000
 - `app/api/tmdb` proxies TMDB so the token stays on the server. `app/api/match` matches up to 60 titles per request, 8 at a time: TMDB first, AniList to recognise anime names, then simplified versions of the text. `app/api/benchmarks` builds the ranking lists once a day.
 - `lib/store.js` keeps your list on the device and in memory, so pages render immediately. Changes appear at once and save in the background.
 - `lib/extract.js` reads files and free text into title lines. `lib/match.js` scores how close typed text is to a real title.
-- A database trigger records history automatically.
+- Database triggers record history and the diary automatically.
+- `public/sw.js` makes the site installable and fast offline; `app/api/cron/notify` (optional) sends new-episode notifications once a day.
 
 Title data and images come from [TMDB](https://www.themoviedb.org) and [AniList](https://anilist.co). This product uses the TMDB API but is not endorsed or certified by TMDB.

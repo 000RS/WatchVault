@@ -1,6 +1,6 @@
 {
   "name": "watchvault",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
   "description": "Personal tracker for anime, movies, series and world dramas, backed by live TMDB and AniList data.",
   "scripts": {
@@ -17,6 +17,7 @@
     "next": "^15.3.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "web-push": "^3.6.7"
   }
 }

@@ -78,4 +78,34 @@ export const Icon = {
   Link: (p) => (
     <svg {...base} {...p}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>
   ),
+  Calendar: (p) => (
+    <svg {...base} {...p}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+  ),
+  Book: (p) => (
+    <svg {...base} {...p}><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15H5.5A1.5 1.5 0 0 0 4 19.5z" /><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20" /></svg>
+  ),
+  Spark: (p) => (
+    <svg {...base} {...p}><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" /></svg>
+  ),
+  Stack: (p) => (
+    <svg {...base} {...p}><path d="m12 3 9 5-9 5-9-5z" /><path d="m3 13 9 5 9-5" /></svg>
+  ),
+  Blend: (p) => (
+    <svg {...base} {...p}><circle cx="9" cy="12" r="6" /><circle cx="15" cy="12" r="6" /></svg>
+  ),
+  Message: (p) => (
+    <svg {...base} {...p}><path d="M4 5h16v11H9l-5 4z" /><path d="M8 9.5h8M8 12.5h5" /></svg>
+  ),
+  Inbox: (p) => (
+    <svg {...base} {...p}><path d="M3 13 5.5 5h13L21 13v6H3z" /><path d="M3 13h5l1.5 2.5h5L16 13h5" /></svg>
+  ),
+  Download: (p) => (
+    <svg {...base} {...p}><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5" /><path d="M4 19h16" /></svg>
+  ),
+  Share: (p) => (
+    <svg {...base} {...p}><path d="M12 15V3M8 7l4-4 4 4" /><path d="M5 12v8h14v-8" /></svg>
+  ),
+  Heart: (p) => (
+    <svg {...base} {...p}><path d="M12 20s-7-4.4-9-9a4.6 4.6 0 0 1 9-2 4.6 4.6 0 0 1 9 2c-2 4.6-9 9-9 9z" /></svg>
+  ),
 };

@@ -59,7 +59,30 @@ async function tmdbSearch(kind, query, year) {
 
 const keyOf = (c) => `${c.source}:${c.mediaType}:${c.sourceId}`;
 
-async function matchOne({ q, year, kind = 'any' }) {
+// Exports from Trakt, Simkl, IMDb and similar carry real IDs: use them directly.
+async function byId({ tmdbId, tmdbType, imdbId }) {
+  if (tmdbId && /^\d+$/.test(String(tmdbId))) {
+    for (const type of tmdbType ? [tmdbType] : ['movie', 'tv']) {
+      const d = await tmdbServer(`${type}/${tmdbId}`, {}, { revalidate: 86400 }).catch(() => null);
+      if (d?.id) return normalizeTmdb(d, type);
+    }
+  }
+  if (imdbId && /^tt\d+$/.test(imdbId)) {
+    const f = await tmdbServer(`find/${imdbId}`, { external_source: 'imdb_id' }, { revalidate: 86400 }).catch(() => null);
+    const hit = f?.movie_results?.[0] ? ['movie', f.movie_results[0]] : f?.tv_results?.[0] ? ['tv', f.tv_results[0]] : null;
+    if (hit) {
+      const d = await tmdbServer(`${hit[0]}/${hit[1].id}`, {}, { revalidate: 86400 }).catch(() => null);
+      return normalizeTmdb(d || hit[1], hit[0]);
+    }
+  }
+  return null;
+}
+
+async function matchOne({ q, year, kind = 'any', tmdbId, tmdbType, imdbId }) {
+  if (tmdbId || imdbId) {
+    const direct = await byId({ tmdbId, tmdbType, imdbId });
+    if (direct) return { best: direct, confidence: 1, alternatives: [] };
+  }
   q = String(q || '').trim().slice(0, 200);
   year = Number(year) || null;
   if (q.length < 1) return { best: null, confidence: 0, alternatives: [] };

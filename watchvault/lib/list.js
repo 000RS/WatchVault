@@ -27,7 +27,30 @@ export function snapshotFromTitle(t) {
     runtime: t.runtime || null,
     genres: t.genres?.length ? t.genres.slice(0, 6) : null,
     popularity: t.popularity ?? null,
+    tmdb_rating: t.source === 'tmdb' && t.rating ? Number(Number(t.rating).toFixed(1)) : null,
+    release_date: t.date || null,
   };
+}
+
+/* Columns added in upgrade_v4.sql. Until that has run, they are left out of saves so nothing breaks. */
+export const V4_COLUMNS = ['review', 'review_spoiler', 'tags', 'rewatch_count', 'episode_log', 'best_episode', 'credits', 'tmdb_rating', 'release_date'];
+let v4 = null;
+export function hasV4() {
+  if (!v4) {
+    v4 = (async () => {
+      const sb = getSupabase();
+      if (!sb) return false;
+      const { error } = await sb.from('entries').select('review').limit(1);
+      return !error;
+    })();
+  }
+  return v4;
+}
+async function fitSchema(row) {
+  if (await hasV4()) return row;
+  const r = { ...row };
+  for (const c of V4_COLUMNS) delete r[c];
+  return r;
 }
 
 /**
@@ -104,7 +127,7 @@ export async function fetchList() {
 
 export async function insertOrUpdate(row) {
   const { sb, userId } = await client();
-  const { data, error } = await sb.from('entries').upsert({ ...row, user_id: userId }, { onConflict: CONFLICT }).select().single();
+  const { data, error } = await sb.from('entries').upsert(await fitSchema({ ...row, user_id: userId }), { onConflict: CONFLICT }).select().single();
   if (error) throw new Error(friendly(error));
   return data;
 }
@@ -113,7 +136,7 @@ export async function insertMany(rows) {
   const { sb, userId } = await client();
   const saved = [];
   for (let i = 0; i < rows.length; i += 200) {
-    const chunk = rows.slice(i, i + 200).map((r) => ({ ...r, user_id: userId }));
+    const chunk = await Promise.all(rows.slice(i, i + 200).map((r) => fitSchema({ ...r, user_id: userId })));
     const { data, error } = await sb.from('entries').upsert(chunk, { onConflict: CONFLICT }).select();
     if (error) throw new Error(friendly(error));
     saved.push(...data);
@@ -123,14 +146,14 @@ export async function insertMany(rows) {
 
 export async function patchRow(id, patch) {
   const { sb } = await client();
-  const { data, error } = await sb.from('entries').update(patch).eq('id', id).select().single();
+  const { data, error } = await sb.from('entries').update(await fitSchema(patch)).eq('id', id).select().single();
   if (error) throw new Error(friendly(error));
   return data;
 }
 
 export async function patchRows(ids, patch) {
   const { sb } = await client();
-  const { data, error } = await sb.from('entries').update(patch).in('id', ids).select();
+  const { data, error } = await sb.from('entries').update(await fitSchema(patch)).in('id', ids).select();
   if (error) throw new Error(friendly(error));
   return data;
 }
@@ -143,7 +166,7 @@ export async function deleteRows(ids) {
 
 function friendly(error) {
   const m = error.message || '';
-  if (/column .* does not exist|schema cache/i.test(m)) return 'The database needs an upgrade. Run supabase/upgrade_v2.sql and upgrade_v3.sql in Supabase (see README).';
+  if (/column .* does not exist|schema cache|relation .* does not exist/i.test(m)) return 'The database needs an upgrade. Run supabase/upgrade_v4.sql in Supabase (see README).';
   if (/entries_status_check|violates check constraint/i.test(m)) return 'The new statuses need the v3 database upgrade. Run supabase/upgrade_v3.sql in Supabase (see README).';
   if (/duplicate key/i.test(m)) return 'This title is already in your list.';
   if (/JWT|token/i.test(m)) return 'Your session expired. Sign in again.';
@@ -151,7 +174,7 @@ function friendly(error) {
 }
 
 export function toCsv(rows) {
-  const cols = ['title', 'category', 'media_type', 'status', 'current_season', 'current_episode', 'episodes_watched', 'total_episodes', 'total_seasons', 'movie_progress_pct', 'rating', 'year', 'origin_country', 'watched_from', 'watched_to', 'notes', 'source', 'source_id', 'updated_at'];
+  const cols = ['title', 'category', 'media_type', 'status', 'current_season', 'current_episode', 'episodes_watched', 'total_episodes', 'total_seasons', 'movie_progress_pct', 'rating', 'rewatch_count', 'year', 'origin_country', 'original_language', 'genres', 'tags', 'watched_from', 'watched_to', 'review', 'notes', 'source', 'source_id', 'updated_at'];
   const esc = (v) => {
     if (v === null || v === undefined) return '';
     const s = Array.isArray(v) ? v.join(' ') : String(v);

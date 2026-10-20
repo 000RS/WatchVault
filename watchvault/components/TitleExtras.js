@@ -1,9 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { useProfile } from '@/lib/store';
+import { Icon } from './Icons';
 
 /** Where to stream, rent or buy in your country. */
 export function WhereToWatch({ providers, compact = false }) {
+  const profile = useProfile();
+  const mine = new Set(profile?.services || []);
   if (!providers) return <p className="muted small">Not streaming in your country right now, as far as we know.</p>;
   const groups = [
     ['Stream', providers.stream],
@@ -11,14 +15,16 @@ export function WhereToWatch({ providers, compact = false }) {
     ['Buy', providers.buy],
   ].filter(([, l]) => l?.length);
   if (!groups.length) return <p className="muted small">Not streaming in your country right now, as far as we know.</p>;
+  const onMine = (providers.stream || []).filter((p) => mine.has(p.id));
   return (
     <div className="stack-sm">
+      {onMine.length > 0 && <p className="on-mine"><Icon.Check width={14} height={14} /> On your {onMine.map((p) => p.name).join(' and ')}</p>}
       {groups.slice(0, compact ? 2 : 3).map(([label, list]) => (
         <div key={label} className="providers">
           <span className="field-label">{label}</span>
           <div className="provider-row">
             {list.slice(0, compact ? 6 : 12).map((p) => (
-              <a key={p.id} href={providers.link} target="_blank" rel="noreferrer" className="provider" title={p.name}>
+              <a key={p.id} href={providers.link} target="_blank" rel="noreferrer" className={`provider ${mine.has(p.id) ? 'mine' : ''}`} title={p.name}>
                 {p.logo ? <img src={p.logo} alt={p.name} /> : <span>{p.name}</span>}
               </a>
             ))}

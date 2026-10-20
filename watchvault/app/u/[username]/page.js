@@ -9,10 +9,13 @@ import { ActivityList } from '@/components/ActivityList';
 import { FriendButton } from '@/components/FriendButton';
 import { useAuth } from '@/components/AppShell';
 import { toast } from '@/lib/toast';
+import { useEntries } from '@/lib/store';
+import { FollowButton, PublicLists, Reviews, TasteMatch } from '@/components/ProfileExtras';
 
 export default function ProfilePage() {
   const { username } = useParams();
   const { user } = useAuth();
+  const { entries: myEntries } = useEntries();
   const [state, setState] = useState({ loading: true });
 
   useEffect(() => {
@@ -74,7 +77,10 @@ export default function ProfilePage() {
         Edit profile
       </Link>
     ) : (
-      <FriendButton state={relation} onAdd={() => friendAction(() => sendFriendRequest(profile.id), 'Request sent')} onAccept={() => friendAction(() => acceptFriendRequest(profile.id), 'You are now friends')} />
+      <>
+        <FriendButton state={relation} onAdd={() => friendAction(() => sendFriendRequest(profile.id), 'Request sent')} onAccept={() => friendAction(() => acceptFriendRequest(profile.id), 'You are now friends')} />
+        {relation !== 'friends' && profile.is_public && <FollowButton userId={profile.id} />}
+      </>
     );
 
   if (!canSee) {
@@ -91,6 +97,7 @@ export default function ProfilePage() {
   return (
     <>
       <VaultHero profile={profile} entries={visible} topLists={topLists} isSelf={isSelf} actions={actions} />
+      {!isSelf && <TasteMatch mine={myEntries} theirs={visible} name={profile.display_name || `@${profile.username}`} />}
       <TopPodiums entries={visible} topLists={topLists} size={size} hidden={hidden} />
       <EntryRow title="Watching now" entries={visible.filter((e) => e.status === 'watching')} />
       {activity.length > 0 && (
@@ -99,6 +106,8 @@ export default function ProfilePage() {
           <ActivityList rows={activity.filter((a) => !hidden.has(a.category))} />
         </section>
       )}
+      <Reviews entries={visible} />
+      <PublicLists userId={profile.id} />
       <TasteCard entries={visible} isSelf={isSelf} />
     </>
   );

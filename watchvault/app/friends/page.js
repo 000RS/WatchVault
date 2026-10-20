@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { acceptFriendRequest, displayName, fetchActivity, friendships, removeFriend, searchProfiles, sendFriendRequest } from '@/lib/social';
+import { acceptFriendRequest, displayName, fetchActivity, friendships, profilesByIds, removeFriend, searchProfiles, sendFriendRequest, sharedEntries } from '@/lib/social';
+import { following, reactionsFor } from '@/lib/social4';
+import { useAuth } from '@/components/AppShell';
+import { computeStats } from '@/lib/stats';
 import { useProfile } from '@/lib/store';
 import { ActivityList } from '@/components/ActivityList';
 import { toast } from '@/lib/toast';
@@ -15,18 +18,45 @@ export default function FriendsPage() {
   const [q, setQ] = useState('');
   const [found, setFound] = useState([]);
   const [error, setError] = useState(null);
+  const [reactions, setReactions] = useState([]);
+  const [names, setNames] = useState({});
+  const [board, setBoard] = useState(null);
+  const { user } = useAuth();
 
   const load = useCallback(async () => {
     try {
       const d = await friendships();
       setData(d);
-      const names = Object.fromEntries(d.friends.map((f) => [f.other, f.profile]));
-      const rows = await fetchActivity(d.friends.map((f) => f.other), { limit: 40 });
-      setFeed(rows.map((r) => ({ ...r, who: names[r.user_id] })));
+      const followed = await following().catch(() => []);
+      const ids = [...new Set([...d.friends.map((f) => f.other), ...followed])];
+      const extra = await profilesByIds(followed.filter((id) => !d.friends.some((f) => f.other === id))).catch(() => []);
+      const nm = Object.fromEntries([...d.friends.map((f) => [f.other, f.profile]), ...extra.map((p) => [p.id, p])]);
+      if (profile) nm[profile.id] = profile;
+      const rows = await fetchActivity(ids, { limit: 40 });
+      setFeed(rows.map((r) => ({ ...r, who: nm[r.user_id] })));
+      const rx = await reactionsFor(rows.map((r) => r.id));
+      // Names for people who reacted but aren't in the list yet.
+      const missing = [...new Set(rx.map((r) => r.user_id))].filter((id) => !nm[id]);
+      if (missing.length) for (const p of await profilesByIds(missing).catch(() => [])) nm[p.id] = p;
+      setNames(nm);
+      setReactions(rx);
+      // Leaderboard: this year's finishes and hours for you and your friends.
+      const people = [...d.friends.map((f) => f.profile), profile].filter(Boolean);
+      const lists = await Promise.all(people.map((p) => sharedEntries(p.id).catch(() => [])));
+      const year = String(new Date().getFullYear());
+      setBoard(
+        people
+          .map((p, i) => {
+            const thisYear = lists[i].filter((e) => String(e.watched_to || '').startsWith(year));
+            const st = computeStats(lists[i]);
+            return { p, finished: thisYear.filter((e) => e.status === 'completed').length, hours: Math.round(st.hours), total: st.watchedCount };
+          })
+          .sort((a, b) => b.hours - a.hours)
+      );
     } catch (e) {
       setError(e.message);
     }
-  }, []);
+  }, [profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     load();
@@ -143,10 +173,47 @@ export default function FriendsPage() {
         </div>
       </section>
 
+      {board && board.length > 1 && (
+        <section className="section">
+          <h2 className="h-section">Leaderboard</h2>
+          <div className="table-wrap">
+            <table className="rates" style={{ minWidth: 0 }}>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Who</th>
+                  <th>Hours (all time)</th>
+                  <th>Titles</th>
+                  <th>Finished this year</th>
+                </tr>
+              </thead>
+              <tbody>
+                {board.map((b, i) => (
+                  <tr key={b.p.id} className={b.p.id === profile?.id ? 'me' : ''}>
+                    <td className="num">{i + 1}</td>
+                    <td>{b.p.id === profile?.id ? 'You' : displayName(b.p)}</td>
+                    <td className="num">{b.hours.toLocaleString()}</td>
+                    <td className="num">{b.total.toLocaleString()}</td>
+                    <td className="num">{b.finished}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {feed && feed.length > 0 && (
         <section className="section">
           <h2 className="h-section">What friends are watching</h2>
-          <ActivityList rows={feed} showWho />
+          <ActivityList
+            rows={feed}
+            showWho
+            reactions={reactions}
+            me={user?.id}
+            names={names}
+            onReactions={(id, next) => setReactions((all) => [...all.filter((r) => r.activity_id !== id), ...next])}
+          />
         </section>
       )}
     </>

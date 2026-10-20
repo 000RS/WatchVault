@@ -10,8 +10,12 @@ import {
   bestInLanguage,
   browseTitles,
   findCompany,
+  currentAnimeSeason,
   newShelves,
   normalizeTmdb,
+  seasonLabel,
+  seasonalAnime,
+  shiftSeason,
   searchPeople,
   similarTitles,
   streamingServices,
@@ -24,10 +28,12 @@ import Shelf from '@/components/Shelf';
 import { TitleTile } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
 import AskPanel, { useAiEnabled } from '@/components/Ask';
+import SearchResults, { COUNTRIES } from '@/components/SearchResults';
 
 const TABS = [
   { id: 'foryou', label: 'For you', blurb: 'Rows picked from what you love. Tick anything you have already seen.' },
   { id: 'browse', label: 'Tick off', blurb: 'The best-known titles, filtered your way. Tick everything you have seen.' },
+  { id: 'season', label: 'Anime season', blurb: 'Every anime airing this season, most popular first. Step back through past seasons.' },
   { id: 'studios', label: 'Studios & people', blurb: 'Browse by studio, franchise, actor, director or writer.' },
   { id: 'new', label: 'New', blurb: 'Fresh releases, updated every day.' },
   { id: 'ask', label: 'Ask', blurb: 'Tell the guide what you are in the mood for, or how you want to watch a franchise.', ai: true },
@@ -39,12 +45,21 @@ export default function ExplorePage() {
   const mem = viewMemory.get(MEM) || {};
   const [tab, setTab] = useState(mem.tab || 'foryou');
   const [round, setRound] = useState(mem.round || 0);
+  const [q, setQ] = useState(mem.q || '');
+  const searchRef = useRef(null);
   const ai = useAiEnabled();
 
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('tab');
+    const sp = new URLSearchParams(window.location.search);
+    const t = sp.get('tab');
     if (t && TABS.some((x) => x.id === t)) setTab(t);
+    if (sp.get('q')) setQ(sp.get('q'));
+    if (sp.get('q') || sp.get('search')) searchRef.current?.focus();
   }, []);
+  useEffect(() => {
+    viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), q });
+  }, [q]);
+  const searching = q.trim().length > 0;
   useEffect(() => {
     viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), tab, round });
   }, [tab, round]);
@@ -60,6 +75,43 @@ export default function ExplorePage() {
   const tabs = TABS.filter((t) => !t.ai || ai);
   const current = tabs.find((t) => t.id === tab) || tabs[0];
 
+  const searchBar = (
+    <form className="search-bar" role="search" onSubmit={(e) => (e.preventDefault(), searchRef.current?.blur())}>
+      <Icon.Search />
+      <input
+        ref={searchRef}
+        id="explore-search"
+        className="search-bar-input"
+        type="search"
+        placeholder="Search titles, actors, directors… any spelling"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        autoComplete="off"
+        enterKeyHint="search"
+      />
+      {searching && (
+        <button type="button" className="icon-btn" aria-label="Clear search" onClick={() => (setQ(''), searchRef.current?.focus())}>
+          <Icon.Close width={16} height={16} />
+        </button>
+      )}
+    </form>
+  );
+
+  if (searching)
+    return (
+      <>
+        <header className="page-head">
+          <div className="head-text">
+            <h1 className="h-page">Explore</h1>
+          </div>
+        </header>
+        {searchBar}
+        <div className="page-enter" data-explore="search" style={{ gap: 'inherit' }}>
+          <SearchResults q={q} onPick={setQ} />
+        </div>
+      </>
+    );
+
   return (
     <>
       <header className="page-head">
@@ -68,7 +120,7 @@ export default function ExplorePage() {
           <p className="muted">{current.blurb}</p>
         </div>
         <div className="row">
-          {current.id !== 'ask' && current.id !== 'studios' && (
+          {!['ask', 'studios', 'season'].includes(current.id) && (
             <button className="btn sm" onClick={() => (setRound((r) => r + 1), window.scrollTo({ top: 0 }))} title="Show fresh titles">
               <Icon.Refresh width={16} height={16} /> Refresh
             </button>
@@ -82,9 +134,11 @@ export default function ExplorePage() {
           </div>
         </div>
       </header>
+      {searchBar}
       <div className="page-enter" data-explore={current.id} style={{ gap: 'inherit' }}>
         {current.id === 'foryou' && <ForYou key={`f${round}`} round={round} />}
         {current.id === 'browse' && <Browse key={`b${round}`} round={round} />}
+        {current.id === 'season' && <Season />}
         {current.id === 'studios' && <Studios />}
         {current.id === 'new' && <New key={`n${round}`} />}
         {current.id === 'ask' && <AskPanel />}
@@ -219,7 +273,7 @@ function buildPlan(entries, hidden, round) {
 
 /* ---------------- Tick off: filtered grid that remembers where you were ---------------- */
 
-const FILTER_KEYS = ['typeId', 'when', 'genre', 'sort', 'language', 'minRating', 'provider'];
+const FILTER_KEYS = ['typeId', 'when', 'genre', 'sort', 'language', 'minRating', 'provider', 'country', 'runtime', 'mine'];
 const gridCache = new Map(); // filters → { items, page, total }
 
 function Browse({ round = 0 }) {
@@ -235,9 +289,13 @@ function Browse({ round = 0 }) {
     language: saved.language || '',
     minRating: saved.minRating || '',
     provider: saved.provider || '',
+    country: saved.country || '',
+    runtime: saved.runtime || '',
+    mine: saved.mine || '',
   }));
   const [hideSeen, setHideSeen] = useState(saved.hideSeen ?? true);
-  const [moreFilters, setMoreFilters] = useState(Boolean(saved.language || saved.minRating || saved.provider));
+  const [moreFilters, setMoreFilters] = useState(Boolean(saved.language || saved.minRating || saved.provider || saved.country || saved.runtime));
+  const myServices = profile?.services || [];
   const [services, setServices] = useState([]);
   const type = BROWSE_TYPES.find((t) => t.id === f.typeId) || BROWSE_TYPES[0];
   // Refresh starts further into the results each time, so the grid is genuinely new.
@@ -270,7 +328,7 @@ function Browse({ round = 0 }) {
       setError(null);
       try {
         const tasteGenres = f.sort === 'taste' && taste.current ? tasteGenreIds(taste.current, type.media, 3) : [];
-        const r = await browseTitles({ ...f, year, decade, page, tasteGenres });
+        const r = await browseTitles({ ...f, provider: f.mine && myServices.length ? myServices : f.provider, year, decade, page, tasteGenres });
         for (const i of r.items) if (lookupRef.current(i)) seenAtLoad.current.add(`${i.mediaType}:${i.sourceId}`);
         setGrid((g) => {
           const next = { items: page === startPage ? r.items : g.items.concat(r.items), page, total: r.totalPages };
@@ -310,7 +368,7 @@ function Browse({ round = 0 }) {
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value, ...(k === 'typeId' ? { genre: '', provider: '' } : {}) }));
   const genres = type.media === 'movie' ? MOVIE_GENRES : TV_GENRES;
   const years = Array.from({ length: new Date().getFullYear() - 1949 }, (_, i) => new Date().getFullYear() - i);
-  const activeExtras = [f.language, f.minRating, f.provider].filter(Boolean).length;
+  const activeExtras = [f.language, f.minRating, f.provider, f.country, f.runtime].filter(Boolean).length;
 
   return (
     <>
@@ -368,6 +426,15 @@ function Browse({ round = 0 }) {
             </span>
             Hide what&apos;s in my list
           </label>
+          {myServices.length > 0 && (
+            <label className="row small">
+              <span className="toggle">
+                <input id="my-services" type="checkbox" checked={Boolean(f.mine)} onChange={(e) => setF((x) => ({ ...x, mine: e.target.checked ? '1' : '' }))} />
+                <span />
+              </span>
+              On my services
+            </label>
+          )}
         </div>
         {moreFilters && (
           <div className="toolbar">
@@ -395,8 +462,27 @@ function Browse({ round = 0 }) {
                 </option>
               ))}
             </select>
+            <select id="browse-country" className="select" value={f.country} onChange={set('country')} aria-label="Country">
+              <option value="">Any country</option>
+              {COUNTRIES.map(([c, n]) => (
+                <option key={c} value={c}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <select id="browse-runtime" className="select" value={f.runtime} onChange={set('runtime')} aria-label={type.media === 'movie' ? 'Length' : 'Episode length'}>
+              <option value="">{type.media === 'movie' ? 'Any length' : 'Any episode length'}</option>
+              {(type.media === 'movie'
+                ? [['short', 'Under 90 min'], ['mid', '90–120 min'], ['long', '2–2½ hours'], ['epic', 'Over 2½ hours']]
+                : [['short', 'Episodes under 30 min'], ['mid', '30–60 min episodes'], ['long', 'Hour-long episodes'], ['epic', 'Feature-length episodes']]
+              ).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
             {activeExtras > 0 && (
-              <button className="btn sm ghost" onClick={() => setF((x) => ({ ...x, language: '', minRating: '', provider: '' }))}>
+              <button className="btn sm ghost" onClick={() => setF((x) => ({ ...x, language: '', minRating: '', provider: '', country: '', runtime: '' }))}>
                 Clear
               </button>
             )}
@@ -422,6 +508,84 @@ function Browse({ round = 0 }) {
         </div>
       )}
       {!busy && !shown.length && !error && <p className="muted">Nothing new here. Try Refresh, another year, or fewer filters.</p>}
+    </>
+  );
+}
+
+/* ---------------- Anime season chart ---------------- */
+
+const seasonCache = new Map();
+
+function Season() {
+  const { lookup } = useEntries();
+  const [s, setS] = useState(() => viewMemory.get('season:pick') || currentAnimeSeason());
+  const [format, setFormat] = useState(viewMemory.get('season:format') || 'all');
+  const k = `${s.season}${s.year}`;
+  const [data, setData] = useState(() => seasonCache.get(k) || null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    viewMemory.set('season:pick', s);
+    viewMemory.set('season:format', format);
+  }, [s, format]);
+
+  useEffect(() => {
+    if (seasonCache.get(k)) return setData(seasonCache.get(k));
+    setData(null);
+    setError(null);
+    let live = true;
+    (async () => {
+      try {
+        const a = await seasonalAnime(s, 1);
+        const b = a.more ? await seasonalAnime(s, 2) : { items: [] };
+        const d = [...a.items, ...b.items];
+        seasonCache.set(k, d);
+        if (live) setData(d);
+      } catch (e) {
+        if (live) setError(e.message);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [k]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const now = currentAnimeSeason();
+  const isNow = now.season === s.season && now.year === s.year;
+  const items = (data || []).filter((i) => (format === 'all' ? true : format === 'movie' ? i.isMovie : !i.isMovie));
+  const mine = items.filter((i) => lookup(i)).length;
+
+  return (
+    <>
+      <div className="toolbar">
+        <button className="btn sm" onClick={() => setS(shiftSeason(s, -1))} aria-label="Previous season">
+          <Icon.Back width={16} height={16} />
+        </button>
+        <b className="season-name">{seasonLabel(s)}</b>
+        <button className="btn sm" onClick={() => setS(shiftSeason(s, 1))} aria-label="Next season">
+          <Icon.Back width={16} height={16} style={{ transform: 'scaleX(-1)' }} />
+        </button>
+        {!isNow && (
+          <button className="btn sm ghost" onClick={() => setS(now)}>
+            This season
+          </button>
+        )}
+        <div className="chips">
+          {[['all', 'All'], ['tv', 'Series'], ['movie', 'Films']].map(([v, l]) => (
+            <button key={v} className={`chip ${format === v ? 'on' : ''}`} onClick={() => setFormat(v)}>
+              {l}
+            </button>
+          ))}
+        </div>
+        {data && <span className="muted small">{mine ? `${mine} of ${items.length} in your list` : `${items.length} titles`}</span>}
+      </div>
+      {error && <p className="notice error">{error}</p>}
+      <div className="grid-posters">
+        {items.map((i) => (
+          <TitleTile key={i.sourceId} item={i} />
+        ))}
+        {!data && !error && Array.from({ length: 12 }, (_, i) => <div key={i} className="skeleton" />)}
+      </div>
     </>
   );
 }

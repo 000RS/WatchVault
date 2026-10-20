@@ -50,3 +50,38 @@ export function tasteGenreIds(profile, mediaType, n = 3) {
     mediaType
   ).slice(0, n);
 }
+
+const keyOf = (e) => `${e.source}:${e.media_type}:${e.source_id}`;
+const STARTED_OK = new Set(['completed', 'watching', 'on_hold', 'stopped']);
+
+/**
+ * How alike two people's taste is, 0–100: genres they watch, how they rate the titles
+ * they share, and how much they overlap. Also returns what they loved that you haven't seen.
+ */
+export function tasteMatch(mine, theirs) {
+  const my = new Map(mine.map((e) => [keyOf(e), e]));
+  const common = theirs.filter((e) => my.has(keyOf(e)) && STARTED_OK.has(e.status) && STARTED_OK.has(my.get(keyOf(e)).status));
+  const vec = (list) => {
+    const v = new Map();
+    for (const e of list) if (STARTED_OK.has(e.status)) for (const g of e.genres || []) v.set(g, (v.get(g) || 0) + 1);
+    return v;
+  };
+  const a = vec(mine);
+  const b = vec(theirs);
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (const [g, x] of a) (na += x * x), (dot += x * (b.get(g) || 0));
+  for (const [, y] of b) nb += y * y;
+  const genre = na && nb ? dot / Math.sqrt(na * nb) : 0;
+  const bothRated = common.filter((e) => e.rating != null && my.get(keyOf(e)).rating != null);
+  const agree = bothRated.length ? 1 - bothRated.reduce((s, e) => s + Math.abs(e.rating - my.get(keyOf(e)).rating), 0) / bothRated.length / 9 : null;
+  const overlap = Math.min(1, common.length / 25);
+  const score = agree == null ? genre * 0.75 + overlap * 0.25 : genre * 0.5 + agree * 0.3 + overlap * 0.2;
+  const loved = theirs
+    .filter((e) => !my.has(keyOf(e)) && (e.rating >= 8 || (e.rating == null && e.status === 'completed' && (e.rewatch_count || 0) > 0)))
+    .sort((x, y) => (y.rating ?? 0) - (x.rating ?? 0) || (y.popularity ?? 0) - (x.popularity ?? 0));
+  const sharedFaves = bothRated.filter((e) => e.rating >= 8 && my.get(keyOf(e)).rating >= 8).sort((x, y) => y.rating + my.get(keyOf(y)).rating - x.rating - my.get(keyOf(x)).rating);
+  const fights = bothRated.filter((e) => Math.abs(e.rating - my.get(keyOf(e)).rating) >= 4).map((e) => ({ e, mine: my.get(keyOf(e)).rating }));
+  return { pct: Math.round(Math.max(0, Math.min(1, score)) * 100), common: common.length, loved, sharedFaves, fights };
+}

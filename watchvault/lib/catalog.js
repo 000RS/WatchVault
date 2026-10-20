@@ -209,8 +209,8 @@ export async function bestInLanguage(mediaType, language, page = 1) {
  * Search box results: TMDB first (spelling-tolerant, with people), plus AniList for anime TMDB doesn't have.
  * Returns { items, people, didYouMean }.
  */
-export async function searchEverything(q, { type = 'all', year } = {}) {
-  const qs = new URLSearchParams({ q, type, ...(year ? { year: String(year) } : {}) });
+export async function searchEverything(q, { type = 'all', year, language, country } = {}) {
+  const qs = new URLSearchParams({ q, type, ...(year ? { year: String(year) } : {}), ...(language ? { language } : {}), ...(country ? { country } : {}) });
   const wantAnime = type === 'all' || type === 'anime';
   const [main, ani] = await Promise.all([
     fetch(`/api/search?${qs}`).then(async (r) => {
@@ -222,7 +222,7 @@ export async function searchEverything(q, { type = 'all', year } = {}) {
   ]);
   let items = main.items || [];
   const known = new Set(items.flatMap((i) => [simple(i.title), simple(i.originalTitle)]));
-  const extra = ani.filter((a) => !a.names.some((n) => known.has(simple(n))) && (!year || a.year === Number(year)));
+  const extra = ani.filter((a) => !a.names.some((n) => known.has(simple(n))) && (!year || a.year === Number(year)) && (!language || language === 'ja') && (!country || country === 'JP'));
   items = items.concat(extra.slice(0, type === 'anime' ? 8 : 3));
   return { items, people: type === 'all' ? main.people || [] : [], didYouMean: main.didYouMean || null };
 }
@@ -275,7 +275,7 @@ export const LANGUAGES = [
  * f = { typeId, year, decade, genre, sort, page, language, minRating, provider, tasteGenres }
  */
 export async function browseTitles(f) {
-  const { typeId, year, decade, genre, sort = 'known', page = 1, language, minRating, provider, tasteGenres = [] } = f;
+  const { typeId, year, decade, genre, sort = 'known', page = 1, language, minRating, provider, country, runtime, tasteGenres = [] } = f;
   const t = BROWSE_TYPES.find((x) => x.id === typeId) || BROWSE_TYPES[0];
   const isMovie = t.media === 'movie';
   const sortDef = BROWSE_SORTS.find((s) => s.id === sort) || BROWSE_SORTS[1];
@@ -293,12 +293,21 @@ export async function browseTitles(f) {
   if (genre) p.with_genres = [p.with_genres, genre].filter(Boolean).join(',');
   else if (sort === 'taste' && tasteGenres.length) p.with_genres = [p.with_genres, tasteGenres.join('|')].filter(Boolean).join(',');
   if (language) p.with_original_language = language;
+  if (country) p.with_origin_country = country;
+  // Runtime buckets: movie length, or episode length for series.
+  const RUNTIMES = { short: [0, 30], mid: [30, 60], long: [60, 120], epic: [120, 400] };
+  const rt = RUNTIMES[runtime];
+  if (rt) {
+    const [lo, hi] = isMovie && runtime === 'short' ? [0, 90] : isMovie && runtime === 'mid' ? [90, 120] : isMovie && runtime === 'long' ? [120, 150] : isMovie ? [150, 400] : rt;
+    if (lo) p['with_runtime.gte'] = String(lo);
+    p['with_runtime.lte'] = String(hi);
+  }
   if (minRating) {
     p['vote_average.gte'] = String(minRating);
     p['vote_count.gte'] ||= isMovie ? '100' : '40';
   }
   if (provider) {
-    p.with_watch_providers = String(provider);
+    p.with_watch_providers = Array.isArray(provider) ? provider.join('|') : String(provider);
     p.watch_region = REGION;
     p.with_watch_monetization_types = 'flatrate|free|ads';
   }
@@ -469,4 +478,100 @@ export async function collectionFull(id) {
   const c = await tmdb(`collection/${id}`);
   const parts = (c.parts || []).map((r) => normalizeTmdb(r, 'movie')).filter((i) => i.date).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   return { id: c.id, name: c.name, overview: c.overview, backdrop: img(c.backdrop_path, 'w1280'), parts };
+}
+
+/* ---------------- v4: credits for stats, episodes, seasonal anime, calendar ---------------- */
+
+/**
+ * Compact credits stored on an entry so Stats can rank actors, directors and studios
+ * without asking TMDB again. Shape: { c: [[id, name, gender, photo]], d, w, m: [[id, name]], s: [[id, name]], co: [], rt, ep }
+ * gender: 1 woman, 2 man, 0/3 unknown (TMDB's values).
+ */
+export async function creditsFor(source, mediaType, id) {
+  if (source === 'anilist') {
+    const d = await anilist(
+      `query ($id: Int) { Media(id: $id) { duration episodes countryOfOrigin studios(isMain: true) { nodes { id name } }
+        staff(perPage: 8, sort: RELEVANCE) { edges { role node { id name { full } } } } } }`,
+      { id: Number(id) }
+    );
+    const m = d.Media || {};
+    const staff = m.staff?.edges || [];
+    const pick = (re) => staff.filter((e) => re.test(e.role || '')).slice(0, 2).map((e) => [`a${e.node.id}`, e.node.name.full]);
+    return { c: [], d: pick(/^director/i), w: pick(/original creator|story|series composition/i), m: pick(/music/i), s: (m.studios?.nodes || []).slice(0, 2).map((s) => [`a${s.id}`, s.name]), co: m.countryOfOrigin ? [m.countryOfOrigin] : ['JP'], rt: m.duration || null, ep: m.episodes || null };
+  }
+  const isTv = mediaType === 'tv';
+  const r = await tmdb(`${mediaType}/${id}`, { append_to_response: isTv ? 'aggregate_credits' : 'credits' });
+  const cr = (isTv ? r.aggregate_credits : r.credits) || {};
+  const crew = cr.crew || [];
+  const jobOf = (c) => c.job || c.jobs?.map((j) => j.job).join(',') || '';
+  const by = (re, n) => {
+    const seen = new Set();
+    return crew.filter((c) => re.test(jobOf(c)) && !seen.has(c.id) && seen.add(c.id)).slice(0, n).map((c) => [c.id, c.name]);
+  };
+  const directors = isTv ? (r.created_by || []).map((c) => [c.id, c.name]).slice(0, 2) : by(/^Director$/, 2);
+  return {
+    c: (cr.cast || [])
+      .sort((a, b) => (isTv ? (b.total_episode_count || 0) - (a.total_episode_count || 0) : (a.order ?? 99) - (b.order ?? 99)))
+      .slice(0, 8)
+      .map((c) => [c.id, c.name, c.gender || 0, c.profile_path || null]),
+    d: directors.length ? directors : by(/Director/, 2),
+    w: by(/Screenplay|Writer|Novel|Story|Author/, 2),
+    m: by(/Original Music Composer|Music/, 1),
+    s: (r.production_companies || []).slice(0, 3).map((c) => [c.id, c.name]),
+    n: (r.networks || []).slice(0, 2).map((c) => [c.id, c.name]),
+    co: r.origin_country?.length ? r.origin_country : (r.production_countries || []).map((c) => c.iso_3166_1),
+    rt: isTv ? (r.episode_run_time || [])[0] || r.last_episode_to_air?.runtime || null : r.runtime || null,
+    ep: isTv ? r.number_of_episodes || null : null,
+    vote: r.vote_average ?? null,
+    date: (isTv ? r.first_air_date : r.release_date) || null,
+  };
+}
+
+/** Episodes of one TMDB season. */
+export async function seasonEpisodes(tvId, season) {
+  const d = await tmdb(`tv/${tvId}/season/${season}`);
+  return (d.episodes || []).map((e) => ({
+    number: e.episode_number,
+    name: e.name,
+    air: e.air_date,
+    runtime: e.runtime,
+    still: img(e.still_path, 'w300'),
+    overview: e.overview,
+    rating: e.vote_average || null,
+  }));
+}
+
+const SEASONS = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
+export function currentAnimeSeason(date = new Date()) {
+  // AniList seasons: Winter Jan–Mar, Spring Apr–Jun, Summer Jul–Sep, Fall Oct–Dec.
+  return { season: SEASONS[Math.floor(date.getMonth() / 3)], year: date.getFullYear() };
+}
+export function shiftSeason({ season, year }, by) {
+  let i = SEASONS.indexOf(season) + by;
+  let y = year;
+  while (i < 0) (i += 4), y--;
+  while (i > 3) (i -= 4), y++;
+  return { season: SEASONS[i], year: y };
+}
+export const seasonLabel = ({ season, year }) => `${season[0]}${season.slice(1).toLowerCase()} ${year}`;
+
+/** The anime season chart from AniList (popular first). */
+export async function seasonalAnime({ season, year }, page = 1) {
+  const d = await anilist(
+    `query ($s: MediaSeason, $y: Int, $p: Int) { Page(page: $p, perPage: 40) { pageInfo { hasNextPage }
+      media(season: $s, seasonYear: $y, type: ANIME, isAdult: false, sort: POPULARITY_DESC, format_in: [TV, TV_SHORT, ONA, MOVIE]) { ${ANI_FIELDS} } } }`,
+    { s: season, y: year, p: page }
+  );
+  return { items: (d.Page?.media || []).map(normalizeAni).filter((i) => i.poster), more: d.Page?.pageInfo?.hasNextPage };
+}
+
+/** Anime episodes airing in the next `days` days (AniList). */
+export async function animeAiring(days = 7) {
+  const now = Math.floor(Date.now() / 1000);
+  const d = await anilist(
+    `query ($a: Int, $b: Int) { Page(perPage: 50) { airingSchedules(airingAt_greater: $a, airingAt_lesser: $b, sort: TIME) {
+      episode airingAt media { ${ANI_FIELDS} } } } }`,
+    { a: now - 3600 * 6, b: now + days * 86400 }
+  );
+  return (d.Page?.airingSchedules || []).filter((s) => s.media && !s.media.isAdult).map((s) => ({ at: s.airingAt * 1000, episode: s.episode, title: normalizeAni(s.media) }));
 }

@@ -74,7 +74,7 @@ export default function ImportPage() {
             const res = await fetch('/api/match', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ items: chunk.map((l) => ({ id: l.id, q: l.q, year: l.year, kind: l.kind || kind })) }),
+              body: JSON.stringify({ items: chunk.map((l) => ({ id: l.id, q: l.q, year: l.year, kind: l.kind || kind, tmdbId: l.tmdbId || null, tmdbType: l.tmdbType || null, imdbId: l.imdbId || null })) }),
             });
             data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Matching failed.');
@@ -154,6 +154,9 @@ export default function ImportPage() {
         category: t.category,
         ...progressFor(t, { status, episodes, seasons, season, episode, pct }),
         rating: r.line.rating ? Math.min(10, Number(r.line.rating)) : null,
+        ...(r.line.watchedOn ? { watched_from: r.line.watchedOn, watched_to: r.line.watchedOn } : {}),
+        ...(r.line.rewatches ? { rewatch_count: r.line.rewatches } : {}),
+        ...(r.line.review ? { review: r.line.review } : {}),
       };
     });
     setStage('saving');
@@ -340,7 +343,7 @@ export default function ImportPage() {
         }}
       >
         <h2 className="h-section">Drop files here</h2>
-        <p className="muted small">Excel, CSV, Word (.docx), text, Letterboxd or IMDb exports, MyAnimeList export</p>
+        <p className="muted small">Excel, CSV, Word (.docx), text, Letterboxd, IMDb, Trakt, TV Time, Simkl or MyAnimeList exports. Watch dates, rewatches and reviews come across too.</p>
         <input
           ref={fileInput}
           id="files"

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { SECONDARY } from '@/components/AppShell';
+import { secondaryFor } from '@/components/AppShell';
 import { useProfile } from '@/lib/store';
 
 export default function MorePage() {
@@ -19,7 +19,7 @@ export default function MorePage() {
         </Link>
       )}
       <nav className="group">
-        {SECONDARY.map((l) => (
+        {secondaryFor(profile).map((l) => (
           <Link key={l.href} href={l.href} className="group-row">
             <span className="row">
               <l.icon />

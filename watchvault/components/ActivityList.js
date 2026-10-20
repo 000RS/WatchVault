@@ -5,6 +5,7 @@ import Poster from './Poster';
 import { STATUS_LABEL } from '@/lib/categories';
 import { titleHref } from '@/lib/actions';
 import { displayName } from '@/lib/social';
+import { Reactions } from './Reactions';
 
 /** [words before the title, words after it] */
 export function describe(a) {
@@ -29,7 +30,7 @@ const dayLabel = (d) => {
 };
 
 /** History grouped by day. */
-export function ActivityList({ rows, showWho = false }) {
+export function ActivityList({ rows, showWho = false, reactions, me, names = {}, onReactions }) {
   const days = [];
   for (const r of rows) {
     const label = dayLabel(r.updated_at || r.created_at);
@@ -61,6 +62,7 @@ export function ActivityList({ rows, showWho = false }) {
                 {describe(a)[1]}
               </p>
               <span className="activity-time">{new Date(a.updated_at || a.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+              {reactions && <Reactions activity={a} list={reactions.filter((r) => r.activity_id === a.id)} me={me} names={names} onChange={(next) => onReactions(a.id, next)} />}
             </div>
           ))}
         </div>

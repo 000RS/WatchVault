@@ -7,6 +7,7 @@ import Sheet from './Sheet';
 import EntryEditor from './EntryEditor';
 import { Credits, WhereToWatch } from './TitleExtras';
 import { Icon } from './Icons';
+import { ListsField } from './EntryExtras';
 import { CATEGORY_LABEL, CATEGORY_SHORT, STATUS_LABEL, completionPct, progressLabel } from '@/lib/categories';
 import { getTitleFull } from '@/lib/catalog';
 import { addTitle, entryHref, itemHref } from '@/lib/actions';
@@ -16,6 +17,7 @@ import { tilt } from './tilt';
 
 const ADD_OPTIONS = [
   { status: 'completed', label: 'Watched it', primary: true },
+  { status: 'completed', label: 'Watched today', hint: 'logs it in your diary', today: true },
   { status: 'watching', label: 'Watched half', pct: 50, movieOnly: true },
   { status: 'watching', label: 'Watching now' },
   { status: 'plan', label: 'Plan to watch' },
@@ -31,7 +33,8 @@ export function AddOptions({ item, onAdded }) {
   async function add(o) {
     setBusy(true);
     try {
-      await addTitle(item, o.status, o.pct != null ? { pct: o.pct } : o.status === 'tried' ? { episodes: 2 } : {});
+      const today = new Date().toISOString().slice(0, 10);
+      await addTitle(item, o.status, o.pct != null ? { pct: o.pct } : o.status === 'tried' ? { episodes: 2 } : o.today ? { fields: { watched_from: today, watched_to: today } } : {});
       toast(`${item.title}: ${o.pct === 50 ? 'half watched' : STATUS_LABEL[o.status].toLowerCase()}`);
       onAdded?.();
     } catch {
@@ -105,7 +108,7 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
         </div>
       </div>
 
-      {t?.overview && <p className="overview clamp">{t.overview}</p>}
+      <Overview text={t?.overview} loading={!full && !t?.overview} />
 
       {entry ? (
         <div className="panel" style={{ padding: 18 }}>
@@ -115,6 +118,8 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
         <AddOptions item={t} />
       ) : null}
 
+      {t && <ListsField title={t} />}
+
       {src === 'tmdb' && (
         <div className="stack">
           <h4 className="h-sub">Where to watch</h4>
@@ -123,6 +128,23 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
       )}
       {full && <Credits full={full} onNavigate={onClose} />}
     </Sheet>
+  );
+}
+
+function Overview({ text, loading }) {
+  const [more, setMore] = useState(false);
+  if (loading) return <div className="skeleton" style={{ height: 66, aspectRatio: 'auto' }} />;
+  if (!text) return null;
+  const long = text.length > 260;
+  return (
+    <div className="overview-wrap">
+      <p className={`overview ${long && !more ? 'clamp' : ''}`}>{text}</p>
+      {long && (
+        <button className="as-text-link small" onClick={() => setMore(!more)}>
+          {more ? 'Show less' : 'Read more'}
+        </button>
+      )}
+    </div>
   );
 }
 

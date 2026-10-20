@@ -44,6 +44,9 @@ function listSummary() {
 }
 
 const SUGGESTIONS = [
+  "I've got 90 minutes. Pick me one film for tonight",
+  'Something light I can have on while I eat',
+  'Surprise me with something on my streaming services',
   'Something like what I rate highest, but from a country I rarely watch',
   "How should I watch Star Wars? I've never seen any",
   'A short series I can finish this weekend',
@@ -59,6 +62,15 @@ export default function AskPanel({ starter = '' }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const end = useRef(null);
+  const services = useRef([]);
+  useEffect(() => {
+    if (!profile?.services?.length) return;
+    import('@/lib/catalog').then(({ streamingServices }) =>
+      Promise.all([streamingServices('movie'), streamingServices('tv')])
+        .then(([a, b]) => (services.current = [...new Set([...a, ...b].filter((x) => profile.services.includes(x.id)).map((x) => x.name))]))
+        .catch(() => {})
+    );
+  }, [profile?.services]);
 
   useEffect(() => {
     viewMemory.set(memKey, messages);
@@ -75,7 +87,7 @@ export default function AskPanel({ starter = '' }) {
     setBusy(true);
     setError(null);
     try {
-      const d = await askGuide({ messages: next.map(({ role, text }) => ({ role, text })), list: listSummary(), hidden: profile?.hidden_categories || [] });
+      const d = await askGuide({ messages: next.map(({ role, text }) => ({ role, text })), list: listSummary(), hidden: profile?.hidden_categories || [], services: services.current });
       setMessages([...next, { role: 'assistant', text: d.reply, cards: d.cards || [] }]);
     } catch (err) {
       setError(err.message);

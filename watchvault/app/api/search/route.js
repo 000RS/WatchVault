@@ -6,11 +6,16 @@ import { tmdbServer, mapLimit } from '@/lib/tmdbServer';
 import { normalizeTmdb, normalizePerson } from '@/lib/catalog';
 import { bestSimilarity, spellingVariants } from '@/lib/match';
 
+// Search results for films carry a language but no country, so guess the country from the language.
+const LANG_COUNTRY = { hi: ['IN'], ta: ['IN'], te: ['IN'], ml: ['IN'], kn: ['IN'], bn: ['IN', 'BD'], mr: ['IN'], pa: ['IN', 'PK'], ur: ['PK', 'IN'], ko: ['KR'], ja: ['JP'], zh: ['CN', 'TW', 'HK'], cn: ['CN', 'HK'], th: ['TH'], tr: ['TR'], fa: ['IR'], id: ['ID'], tl: ['PH'], vi: ['VN'] };
+
 export async function GET(request) {
   const sp = request.nextUrl.searchParams;
   const q = (sp.get('q') || '').trim().slice(0, 120);
   const type = sp.get('type') || 'all';
   const year = Number(sp.get('year')) || null;
+  const language = sp.get('language') || '';
+  const country = (sp.get('country') || '').toUpperCase();
   if (q.length < 2) return Response.json({ items: [], people: [] });
 
   const path = type === 'movie' ? 'search/movie' : type === 'tv' || type === 'anime' ? 'search/tv' : 'search/multi';
@@ -38,6 +43,8 @@ export async function GET(request) {
         if (mt !== 'movie' && mt !== 'tv') continue;
         const it = normalizeTmdb(r, mt);
         if (year && it.year !== year) continue;
+        if (language && it.language !== language) continue;
+        if (country && !(it.countries?.length ? it.countries.includes(country) : LANG_COUNTRY[it.language]?.includes(country))) continue;
         const sim = Math.max(bestSimilarity(q, [it.title, it.originalTitle]), bestSimilarity(v, [it.title, it.originalTitle]) * 0.97);
         const score = sim + Math.min(0.25, Math.log10((it.voteCount || 0) + 1) / 14) + bonus;
         const k = `${mt}:${it.sourceId}`;

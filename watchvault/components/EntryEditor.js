@@ -7,6 +7,7 @@ import { removeEntries, updateEntry } from '@/lib/store';
 import { fillDetails } from '@/lib/actions';
 import { toast } from '@/lib/toast';
 import { Icon } from './Icons';
+import { EpisodeGuide, ReviewField, RewatchField, TagsField } from './EntryExtras';
 
 const MOVIE_STEPS = [
   { pct: 0, label: 'Not started' },
@@ -38,6 +39,7 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
   const [confirm, setConfirm] = useState(false);
   const [notes, setNotes] = useState(entry.notes || '');
   const [dateMode, setDateMode] = useState(entry.watched_from ? 'custom' : null);
+  const [showEpisodes, setShowEpisodes] = useState(!compact);
 
   useEffect(() => {
     fillDetails(entry);
@@ -154,6 +156,16 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
         </div>
       )}
 
+      {hasSeasons && entry.source === 'tmdb' && (
+        showEpisodes ? (
+          <EpisodeGuide entry={entry} />
+        ) : (
+          <button className="btn sm" onClick={() => setShowEpisodes(true)}>
+            Episode guide: tick, rate, favourite
+          </button>
+        )
+      )}
+
       {!isMovie && !hasSeasons && (
         <div className="field-block">
           <span className="field-label">Episodes watched</span>
@@ -174,6 +186,10 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
           ))}
         </div>
       </div>
+
+      {['completed', 'watching', 'on_hold', 'stopped'].includes(entry.status) && <RewatchField entry={entry} />}
+      {entry.status !== 'plan' && <ReviewField entry={entry} />}
+      <TagsField entry={entry} />
 
       <div className="field-block">
         <span className="field-label">When did you watch it?</span>

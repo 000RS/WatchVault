@@ -35,7 +35,12 @@ const COL_ROLES = [
   ['seasons', ['seasons', 'season', 'seasons watched']],
   ['rating', ['rating', 'my rating', 'your rating', 'score', 'my score', 'stars']],
   ['type', ['type', 'title type', 'kind', 'format', 'category', 'media type']],
-  ['skip', ['notes', 'note', 'comments', 'review', 'url', 'link', 'imdb id', 'const', 'id', 'genres', 'genre', 'directors', 'date rated', 'runtime', 'runtime (mins)', 'imdb rating', 'num votes', 'description', 'tags', 'letterboxd uri', 'date', 'watched date', 'rewatch', 'position']],
+  ['imdb', ['imdb id', 'const', 'imdb', 'imdb_id', 'imdbid']],
+  ['tmdb', ['tmdb', 'tmdb id', 'tmdb_id', 'tmdbid']],
+  ['watched', ['watched date', 'date watched', 'watcheddate', 'last watched', 'watched at', 'watched_at', 'last_watched_at', 'date']],
+  ['rewatch', ['rewatch']],
+  ['review', ['review', 'memo']],
+  ['skip', ['notes', 'note', 'comments', 'url', 'link', 'id', 'genres', 'genre', 'directors', 'date rated', 'runtime', 'runtime (mins)', 'imdb rating', 'num votes', 'description', 'tags', 'letterboxd uri', 'position', 'simkl_id', 'tvdb', 'watchlist', 'lastepwatched']],
 ];
 
 let counter = 0;
@@ -232,6 +237,14 @@ function isIndexColumn(values) {
 }
 
 const cellText = (v) => (v === null || v === undefined ? '' : String(v).trim());
+function dateOf(v) {
+  const t = String(v || '').trim();
+  const m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (/^\d{5}$/.test(t)) return new Date(Math.round((Number(t) - 25569) * 86400000)).toISOString().slice(0, 10); // Excel serial date
+  const d = new Date(t);
+  return Number.isFinite(d.getTime()) && d.getFullYear() > 1900 ? d.toISOString().slice(0, 10) : null;
+}
 
 export function extractFromRows(rows) {
   rows = (rows || []).map((r) => (Array.isArray(r) ? r : [r]));
@@ -272,6 +285,40 @@ export function extractFromRows(rows) {
   const items = [];
   const titleCol = roles.indexOf('title');
   const isLetterboxd = header.some((h) => lc(h) === 'letterboxd uri');
+  const isImdb = header.some((h) => lc(h) === 'const') && header.some((h) => lc(h) === 'title type');
+  const hasYourRating = header.some((h) => lc(h) === 'your rating');
+
+  // TV Time export: one row per episode watched. Fold them into one line per show.
+  const lh = header.map(lc);
+  if (lh.includes('tv_show_name') && (lh.includes('episode_number') || lh.includes('episode_season_number'))) {
+    const nameC = lh.indexOf('tv_show_name');
+    const sC = lh.indexOf('episode_season_number');
+    const eC = lh.indexOf('episode_number');
+    const dC = lh.findIndex((h) => /created_at|updated_at|watched/.test(h));
+    const shows = new Map();
+    for (const r of body) {
+      const name = cellText(r[nameC]);
+      if (!name) continue;
+      const se = Number(r[sC]) || 0;
+      const ep = Number(r[eC]) || 0;
+      const cur = shows.get(name) || { season: 0, episode: 0, count: 0, last: null };
+      cur.count++;
+      if (se > cur.season || (se === cur.season && ep > cur.episode)) Object.assign(cur, { season: se, episode: ep });
+      const d = dC >= 0 ? dateOf(cellText(r[dC])) : null;
+      if (d && (!cur.last || d > cur.last)) cur.last = d;
+      shows.set(name, cur);
+    }
+    return finalize(
+      [...shows.entries()].map(([name, x]) => ({
+        id: nextId(), raw: `${name} (S${x.season} E${x.episode})`, q: name, year: null, kind: 'tv', status: 'watching',
+        episodes: x.season ? null : x.count, seasons: null, season: x.season || null, episode: x.season ? x.episode : null, pct: null, rating: null, watchedOn: x.last,
+      }))
+    );
+  }
+  if (lh.includes('tv_show_name')) {
+    const nameC = lh.indexOf('tv_show_name');
+    return finalize(body.map((r) => cellText(r[nameC])).filter(Boolean).map((name) => ({ id: nextId(), raw: name, q: name, year: null, kind: 'tv', status: null, episodes: null, seasons: null, season: null, episode: null, pct: null, rating: null })));
+  }
   const ratingCol = roles.indexOf('rating');
   const ratingMax = ratingCol >= 0 ? Math.max(0, ...columnValues(ratingCol).map(Number).filter(Number.isFinite)) : 0;
 
@@ -291,7 +338,14 @@ export function extractFromRows(rows) {
         if (role === 'seasons' && /^\d+$/.test(v)) p.seasons ??= +v;
         if (role === 'rating' && Number(v) > 0) p.rating ??= Math.min(10, ratingMax <= 5 ? Number(v) * 2 : Number(v));
         if (role === 'type') p.kind ||= kindIn(v.replace(/([a-z])([A-Z])/g, '$1 $2'));
+        if (role === 'imdb' && /^tt\d+$/.test(v)) p.imdbId = v;
+        if (role === 'tmdb' && /^\d+$/.test(v)) p.tmdbId = v;
+        if (role === 'watched') p.watchedOn = dateOf(v) || p.watchedOn;
+        if (role === 'rewatch' && /^(yes|true|1)$/i.test(v)) p.rewatches = (p.rewatches || 0) + 1;
+        if (role === 'review') p.review = v.slice(0, 5000);
       });
+      if (p.tmdbId && !p.tmdbType) p.tmdbType = p.kind === 'movie' ? 'movie' : p.kind === 'tv' || p.kind === 'anime' ? 'tv' : null;
+      if (isImdb) p.status ||= hasYourRating ? 'completed' : 'plan';
       if (isLetterboxd) {
         p.kind ||= 'movie';
         p.status ||= 'completed';
@@ -352,6 +406,71 @@ export function extractFromMal(xml) {
   );
 }
 
+/* ---------------- Trakt and Simkl (JSON) ---------------- */
+
+const TRAKT_STATUS = { completed: 'completed', watching: 'watching', plantowatch: 'plan', hold: 'on_hold', dropped: 'dropped', notinteresting: 'dropped' };
+function fromIds(obj, kind) {
+  const ids = obj?.ids || {};
+  return {
+    id: nextId(),
+    raw: `${obj?.title || 'Untitled'}${obj?.year ? ` (${obj.year})` : ''}`,
+    q: obj?.title || '',
+    year: obj?.year || null,
+    kind,
+    tmdbId: ids.tmdb ? String(ids.tmdb) : null,
+    tmdbType: kind === 'movie' ? 'movie' : 'tv',
+    imdbId: ids.imdb || null,
+    status: null, episodes: null, seasons: null, season: null, episode: null, pct: null, rating: null,
+  };
+}
+/** Trakt export files (watched, watchlist, ratings) or a Simkl backup. Returns null if it's neither. */
+export function extractFromJson(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const out = [];
+  const arr = Array.isArray(data) ? data : null;
+  if (arr && arr.some((x) => x.movie || x.show)) {
+    for (const x of arr) {
+      const kind = x.movie ? 'movie' : 'tv';
+      const it = fromIds(x.movie || x.show, kind);
+      if (x.rating) it.rating = Math.min(10, Number(x.rating));
+      if (x.listed_at && !x.plays && !x.last_watched_at && !x.rating) it.status = 'plan';
+      if (x.last_watched_at) it.watchedOn = String(x.last_watched_at).slice(0, 10);
+      if (x.plays > 1) it.rewatches = x.plays - 1;
+      if (x.seasons?.length) {
+        const s = [...x.seasons].filter((y) => y.number > 0).sort((a, b) => b.number - a.number)[0];
+        if (s) {
+          it.season = s.number;
+          it.episode = Math.max(...s.episodes.map((e) => e.number));
+          it.status = 'watching';
+        }
+      } else if (x.plays || x.last_watched_at) it.status = 'completed';
+      if (!it.status && x.rating) it.status = 'completed';
+      out.push(it);
+    }
+    return finalize(out);
+  }
+  if (data && (data.shows || data.movies || data.anime)) {
+    for (const [list, kind] of [[data.movies, 'movie'], [data.shows, 'tv'], [data.anime, 'anime']]) {
+      for (const x of list || []) {
+        const obj = x.movie || x.show || x.anime || x;
+        const it = fromIds(obj, kind);
+        it.status = TRAKT_STATUS[x.status] || (x.status ? 'completed' : null);
+        if (x.user_rating) it.rating = Number(x.user_rating);
+        if (x.watched_episodes_count != null && kind !== 'movie') it.episodes = Number(x.watched_episodes_count) || null;
+        if (x.last_watched_at) it.watchedOn = String(x.last_watched_at).slice(0, 10);
+        out.push(it);
+      }
+    }
+    return finalize(out);
+  }
+  return null;
+}
+
 /* ---------------- Files ---------------- */
 
 export async function readFile(file) {
@@ -391,6 +510,10 @@ export async function readFile(file) {
 
   // Anything else that is text (txt, md, rtf, json, Google Docs exported as .txt)
   const text = await file.text();
+  if (/\.json$/.test(name) || /^\s*[[{]/.test(text)) {
+    const fromJson = extractFromJson(text);
+    if (fromJson) return fromJson;
+  }
   if (/\.rtf$/.test(name)) return extractFromText(text.replace(/\\par[d]?/g, '\n').replace(/\{\\[^}]*\}|\\[a-z]+\d* ?|[{}]/g, ''));
   return extractFromText(text);
 }

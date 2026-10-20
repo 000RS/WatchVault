@@ -15,6 +15,7 @@ import Poster from '@/components/Poster';
 import EntryEditor from '@/components/EntryEditor';
 import Shelf from '@/components/Shelf';
 import { Icon } from '@/components/Icons';
+import { ListsField } from '@/components/EntryExtras';
 
 const SNAPSHOT_KEYS = ['title', 'poster_url', 'total_episodes', 'total_seasons', 'season_episode_counts', 'runtime', 'year', 'genres'];
 
@@ -162,6 +163,7 @@ export default function TitlePage() {
           ) : (
             <AddPanel title={title} />
           )}
+          {title && <ListsField title={title} />}
         </aside>
       </div>
 

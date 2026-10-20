@@ -8,7 +8,9 @@ const ALLOWED = new RegExp(
     [
       'search/(multi|movie|tv|person|company|collection|keyword)',
       '(movie|tv)/\\d+',
-      '(movie|tv)/\\d+/(recommendations|similar|credits|watch/providers)',
+      '(movie|tv)/\\d+/(recommendations|similar|credits|aggregate_credits|watch/providers)',
+      'tv/\\d+/season/\\d+',
+      'find/tt\\d+',
       'person/\\d+',
       'person/\\d+/combined_credits',
       'company/\\d+',

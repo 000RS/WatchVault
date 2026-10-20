@@ -177,7 +177,7 @@ async function runTool(name, args, seen, cards) {
   return { error: 'Unknown tool' };
 }
 
-const SYSTEM = (list, hidden) => `You are the WatchVault guide: a warm, sharp friend who knows film and TV from every country (Hollywood, Bollywood and other Indian cinema, Pakistani and Turkish dramas, K-dramas, anime, animation and more).
+const SYSTEM = (list, hidden, services = []) => `You are the WatchVault guide: a warm, sharp friend who knows film and TV from every country (Hollywood, Bollywood and other Indian cinema, Pakistani and Turkish dramas, K-dramas, anime, animation and more).
 
 How you talk:
 - Plain, natural and kind, like a person, never like a brochure. Short paragraphs. No headings.
@@ -190,7 +190,7 @@ How you work:
 - Use where_to_watch when they ask how or where to watch. The user is in ${REGION}.
 - Always finish recommendations by calling show_titles with the picks in order, with a short note each. Then reply with a brief message; don't repeat the whole list in text.
 - Don't recommend things they've already completed unless they ask for rewatches; you may mention them as context.
-${hidden.length ? `- They have hidden these shelves, so avoid them unless asked: ${hidden.join(', ')}.` : ''}
+${services.length ? `- Their streaming services: ${services.join(', ')}. When they ask for something "on my services", check where_to_watch and prefer titles streaming on these.\n` : ''}${hidden.length ? `- They have hidden these shelves, so avoid them unless asked: ${hidden.join(', ')}.` : ''}
 
 What they have in their list (title, year, status, their rating out of 10):
 ${list || '(nothing yet)'}`;
@@ -237,13 +237,14 @@ export async function POST(request) {
 
     const list = String(body.list || '').slice(0, 24000);
     const hidden = Array.isArray(body.hidden) ? body.hidden.slice(0, 20).map(String) : [];
+    const services = Array.isArray(body.services) ? body.services.slice(0, 20).map((x) => String(x).slice(0, 40)) : [];
     const seen = new Map();
     const cards = [];
     let reply = '';
 
     for (let step = 0; step < 7; step++) {
       const d = await gemini({
-        systemInstruction: { parts: [{ text: SYSTEM(list, hidden) }] },
+        systemInstruction: { parts: [{ text: SYSTEM(list, hidden, services) }] },
         contents,
         tools: [{ functionDeclarations: TOOLS }],
         generationConfig: { temperature: 0.8, maxOutputTokens: 1500 },

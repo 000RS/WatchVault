@@ -7,6 +7,8 @@ import { computeStats, isWatched } from '@/lib/stats';
 import { entryHref } from '@/lib/actions';
 
 export const HOME_SECTIONS = [
+  { id: 'upnext', label: 'Up next' },
+  { id: 'goals', label: 'Goals & Wrapped' },
   { id: 'continue', label: 'Continue watching' },
   { id: 'tops', label: 'Top lists' },
   { id: 'recent', label: 'Recently watched' },
@@ -14,6 +16,12 @@ export const HOME_SECTIONS = [
   { id: 'taste', label: 'Your taste' },
 ];
 export const DEFAULT_SECTIONS = HOME_SECTIONS.map((s) => ({ id: s.id, on: true }));
+/** Saved layouts from older versions get the new sections added at the top. */
+export function withDefaults(saved) {
+  if (!saved?.length) return DEFAULT_SECTIONS;
+  const have = new Set(saved.map((s) => s.id));
+  return [...HOME_SECTIONS.filter((h) => !have.has(h.id)).map((h) => ({ id: h.id, on: true })), ...saved.filter((s) => HOME_SECTIONS.some((h) => h.id === s.id))];
+}
 
 /** The titles that lead your vault: your overall top list, else your best-known highest-rated ones. */
 export function showcaseFor(entries, topLists, size = 5) {

@@ -6,11 +6,13 @@ import { getSupabase } from '@/lib/supabase';
 import { saveProfile, useEntries } from '@/lib/store';
 import { CATEGORIES } from '@/lib/categories';
 import { toCsv } from '@/lib/list';
-import { DEFAULT_SECTIONS, HOME_SECTIONS } from '@/components/Vault';
+import { HOME_SECTIONS, withDefaults } from '@/components/Vault';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
 import LinkAnimeBanner from '@/components/LinkAnimeBanner';
 import TidyUp from '@/components/TidyUp';
+import { GoalsEditor, InstallApp, NotifyToggle, ServicesPicker } from '@/components/Settings4';
+import { exportJson } from '@/lib/exporter';
 
 export default function SettingsPage() {
   const { entries, profile } = useEntries();
@@ -42,7 +44,7 @@ export default function SettingsPage() {
     );
 
   const hidden = new Set(profile.hidden_categories || []);
-  const sections = profile.home_sections || DEFAULT_SECTIONS;
+  const sections = withDefaults(profile.home_sections);
   const link = profile.username && typeof window !== 'undefined' ? `${window.location.origin}/u/${profile.username}` : null;
 
   return (
@@ -129,6 +131,9 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <ServicesPicker profile={profile} />
+      <GoalsEditor profile={profile} />
+
       <section>
         <h2 className="group-title">Your feed</h2>
         <div className="group">
@@ -213,6 +218,15 @@ export default function SettingsPage() {
         <h2 className="group-title">About</h2>
         <div className="group">
           <div className="group-row">
+            <div>
+              <b>Found a bug or want a feature?</b>
+              <span className="muted small">Send it straight to the person who builds WatchVault.</span>
+            </div>
+            <Link href="/feedback" className="btn sm">
+              Send feedback
+            </Link>
+          </div>
+          <div className="group-row">
             <span className="muted small">
               Title information and images come from TMDB and AniList. This product uses the TMDB API but is not endorsed or certified by TMDB.
             </span>
@@ -250,8 +264,19 @@ function DataTools({ entries }) {
         </div>
         <div className="group-row">
           <div>
+            <b>Full backup</b>
+            <span className="muted small">Everything (list, diary, lists, reviews, top lists) as a JSON file you can keep or move elsewhere.</span>
+          </div>
+          <button className="btn sm" onClick={() => exportJson().catch((e) => toast(e.message, { kind: 'error' }))}>
+            Download JSON
+          </button>
+        </div>
+        <InstallApp />
+        <NotifyToggle />
+        <div className="group-row">
+          <div>
             <b>Import more</b>
-            <span className="muted small">Excel, CSV, Word, text, Letterboxd, IMDb or MyAnimeList.</span>
+            <span className="muted small">Excel, CSV, Word, text, Letterboxd, IMDb, Trakt, TV Time, Simkl or MyAnimeList.</span>
           </div>
           <Link href="/import" className="btn sm">
             Import

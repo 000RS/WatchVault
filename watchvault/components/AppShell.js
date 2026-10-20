@@ -28,9 +28,9 @@ export function BrandMark() {
     <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
       <defs>
         <linearGradient id="wv-gold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ff5c8a" />
-          <stop offset="0.5" stopColor="#b45cff" />
-          <stop offset="1" stopColor="#3fc8ff" />
+          <stop offset="0" stopColor="#e2858d" />
+          <stop offset="0.5" stopColor="#c9545f" />
+          <stop offset="1" stopColor="#8f2f3c" />
         </linearGradient>
       </defs>
       <circle cx="16" cy="16" r="14.5" fill="none" stroke="url(#wv-gold)" strokeWidth="1.2" />
@@ -45,16 +45,23 @@ const PRIMARY = [
   { href: '/', label: 'Home', icon: Icon.Home },
   { href: '/list', label: 'My List', icon: Icon.List },
   { href: '/explore', label: 'Explore', icon: Icon.Compass },
-  { href: '/search', label: 'Search', icon: Icon.Search },
+  { href: '/stats', label: 'Stats', icon: Icon.Chart },
 ];
 const SECONDARY = [
+  { href: '/wrapped', label: 'Wrapped', icon: Icon.Spark },
+  { href: '/diary', label: 'Diary', icon: Icon.Book },
+  { href: '/calendar', label: 'Calendar', icon: Icon.Calendar },
+  { href: '/lists', label: 'Lists', icon: Icon.Stack },
   { href: '/top', label: 'Top lists', icon: Icon.Trophy },
-  { href: '/stats', label: 'Stats', icon: Icon.Chart },
   { href: '/friends', label: 'Friends', icon: Icon.Users },
+  { href: '/blends', label: 'Blends', icon: Icon.Blend },
   { href: '/activity', label: 'History', icon: Icon.Clock },
-  { href: '/import', label: 'Import', icon: Icon.Upload },
+  { href: '/import', label: 'Import & export', icon: Icon.Upload },
   { href: '/settings', label: 'Settings', icon: Icon.Settings },
+  { href: '/feedback', label: 'Feedback', icon: Icon.Message },
 ];
+const ADMIN = { href: '/admin/feedback', label: 'Feedback inbox', icon: Icon.Inbox };
+export const secondaryFor = (profile) => (profile?.is_admin ? [...SECONDARY, ADMIN] : SECONDARY);
 
 export default function AppShell({ children }) {
   const sb = getSupabase();
@@ -68,6 +75,10 @@ export default function AppShell({ children }) {
     const { data } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => data.subscription.unsubscribe();
   }, [sb]);
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (session?.user?.id) initStore(session.user.id);
@@ -131,7 +142,8 @@ function Frame({ children }) {
   const path = usePathname();
   const profile = useProfile();
   const active = (href) => (href === '/' ? path === '/' : path === href || path.startsWith(`${href}/`));
-  const moreActive = SECONDARY.some((l) => active(l.href)) || path === '/more';
+  const links = secondaryFor(profile);
+  const moreActive = links.some((l) => active(l.href)) || path === '/more';
 
   return (
     <div className="frame">
@@ -148,7 +160,7 @@ function Frame({ children }) {
             </Link>
           ))}
           <div className="side-gap" />
-          {SECONDARY.map((l) => (
+          {links.map((l) => (
             <Link key={l.href} href={l.href} className={`side-link ${active(l.href) ? 'on' : ''}`}>
               <l.icon />
               <span>{l.label}</span>
