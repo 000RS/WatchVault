@@ -28,13 +28,27 @@ export function snapshotFromTitle(t) {
     genres: t.genres?.length ? t.genres.slice(0, 6) : null,
     popularity: t.popularity ?? null,
     tmdb_rating: t.source === 'tmdb' && t.rating ? Number(Number(t.rating).toFixed(1)) : null,
-    release_date: t.date || null,
+    release_date: /^\d{4}-\d{2}-\d{2}$/.test(t.date || '') ? t.date : null,
+    ...(t.meta && Object.keys(t.meta).length ? { meta: t.meta } : {}),
   };
 }
 
 /* Columns added in upgrade_v4.sql. Until that has run, they are left out of saves so nothing breaks. */
 export const V4_COLUMNS = ['review', 'review_spoiler', 'tags', 'rewatch_count', 'episode_log', 'best_episode', 'credits', 'tmdb_rating', 'release_date'];
+export const V5_COLUMNS = ['meta', 'favourite'];
 let v4 = null;
+let v5 = null;
+export function hasV5() {
+  if (!v5) {
+    v5 = (async () => {
+      const sb = getSupabase();
+      if (!sb) return false;
+      const { error } = await sb.from('entries').select('meta').limit(1);
+      return !error;
+    })();
+  }
+  return v5;
+}
 export function hasV4() {
   if (!v4) {
     v4 = (async () => {
@@ -47,9 +61,9 @@ export function hasV4() {
   return v4;
 }
 async function fitSchema(row) {
-  if (await hasV4()) return row;
   const r = { ...row };
-  for (const c of V4_COLUMNS) delete r[c];
+  if (!(await hasV5())) for (const c of V5_COLUMNS) delete r[c];
+  if (!(await hasV4())) for (const c of V4_COLUMNS) delete r[c];
   return r;
 }
 
@@ -61,6 +75,15 @@ export function progressFor(t, { status, episodes, seasons, season, episode, pct
   const counts = t.seasons?.length ? t.seasons.map((s) => s.episodes || 0) : t.season_episode_counts || null;
   const total = t.totalEpisodes ?? t.total_episodes ?? (counts ? counts.reduce((a, b) => a + b, 0) : null);
   const mediaType = t.mediaType || t.media_type;
+
+  // Places count visits; music, games, events and trips just keep a status.
+  if (mediaType === 'place') {
+    const visits = episodes ?? t.episodes_watched ?? 0;
+    return { status, episodes_watched: status === 'completed' || status === 'watching' ? Math.max(1, visits) : visits || null, current_season: null, current_episode: null, movie_progress_pct: null };
+  }
+  if (['music', 'event', 'travel', 'custom'].includes(mediaType) || (mediaType === 'game' && episodes == null)) {
+    return { status, episodes_watched: episodes ?? t.episodes_watched ?? null, current_season: null, current_episode: null, movie_progress_pct: null };
+  }
 
   if (mediaType === 'movie') {
     const p = status === 'completed' ? 100 : pct ?? (status === 'watching' ? 50 : 0);
@@ -166,7 +189,8 @@ export async function deleteRows(ids) {
 
 function friendly(error) {
   const m = error.message || '';
-  if (/column .* does not exist|schema cache|relation .* does not exist/i.test(m)) return 'The database needs an upgrade. Run supabase/upgrade_v4.sql in Supabase (see README).';
+  if (/column .* does not exist|schema cache|relation .* does not exist/i.test(m)) return 'The database needs an upgrade. Run supabase/upgrade_v5.sql in Supabase (see README).';
+  if (/entries_(source|media_type)_check/i.test(m)) return 'Books, games, places and the other new shelves need the version 5 database upgrade. Run supabase/upgrade_v5.sql in Supabase (see README).';
   if (/entries_status_check|violates check constraint/i.test(m)) return 'The new statuses need the v3 database upgrade. Run supabase/upgrade_v3.sql in Supabase (see README).';
   if (/duplicate key/i.test(m)) return 'This title is already in your list.';
   if (/JWT|token/i.test(m)) return 'Your session expired. Sign in again.';

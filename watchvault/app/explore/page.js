@@ -29,11 +29,14 @@ import Shelf from '@/components/Shelf';
 import { TitleTile } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
 import AskPanel, { useAiEnabled } from '@/components/Ask';
-import SearchResults, { COUNTRIES, EMPTY_FILTERS, SearchFilters, filtersActive } from '@/components/SearchResults';
+import { SHELF_KINDS, trendingShelf } from '@/lib/shelves';
+import CustomAdd from '@/components/CustomAdd';
+import SearchResults, { COUNTRIES, EMPTY_FILTERS, SearchFilters, filtersActive, searchHint } from '@/components/SearchResults';
 
 const TABS = [
   { id: 'foryou', label: 'For you', blurb: 'Rows picked from what you love. Tick anything you have already seen.' },
   { id: 'browse', label: 'Tick off', blurb: 'The best-known titles, filtered your way. Tick everything you have seen.' },
+  { id: 'shelves', label: 'Books, games & more', blurb: 'What people are reading, playing and listening to right now. Tick what you know.' },
   { id: 'season', label: 'Anime season', blurb: 'Every anime airing this season, most popular first. Step back through past seasons.' },
   { id: 'studios', label: 'Studios & people', blurb: 'Browse by studio, franchise, actor, director or writer.' },
   { id: 'new', label: 'New', blurb: 'Fresh releases, updated every day.' },
@@ -56,6 +59,7 @@ export default function ExplorePage() {
     const sp = new URLSearchParams(window.location.search);
     const t = sp.get('tab');
     if (t && TABS.some((x) => x.id === t)) setTab(t);
+    if (sp.get('type')) setSf({ ...EMPTY_FILTERS, type: sp.get('type') });
     if (sp.get('q')) submit(sp.get('q'));
     if (sp.get('q') || sp.get('search')) searchRef.current?.focus();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -77,9 +81,10 @@ export default function ExplorePage() {
     // "punjabi movies", "korean dramas 2023", "telugu action films" become filters.
     const words = readFilterWords(t);
     if (words) {
-      setSf({ ...EMPTY_FILTERS, ...words });
-      setQ('');
-      setDraft('');
+      const { q: rest, ...filters } = words;
+      setSf({ ...EMPTY_FILTERS, ...filters });
+      setQ(rest || '');
+      setDraft(rest || '');
       return;
     }
     setDraft(t);
@@ -110,7 +115,7 @@ export default function ExplorePage() {
           id="explore-search"
           className="search-bar-input"
           type="search"
-          placeholder="Search titles or actors"
+          placeholder={searchHint(sf) || 'Search anything: films, books, games, cafés…'}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           autoComplete="off"
@@ -174,6 +179,7 @@ export default function ExplorePage() {
         {current.id === 'foryou' && <ForYou key={`f${round}`} round={round} />}
         {current.id === 'browse' && <Browse key={`b${round}`} round={round} />}
         {current.id === 'season' && <Season />}
+        {current.id === 'shelves' && <Shelves />}
         {current.id === 'studios' && <Studios />}
         {current.id === 'new' && <New key={`n${round}`} />}
         {current.id === 'ask' && <AskPanel />}
@@ -543,6 +549,23 @@ function Browse({ round = 0 }) {
         </div>
       )}
       {!busy && !shown.length && !error && <p className="muted">Nothing new here. Try Refresh, another year, or fewer filters.</p>}
+    </>
+  );
+}
+
+/* ---------------- Books, manga, games, music, podcasts, events ---------------- */
+
+function Shelves() {
+  const { profile } = useEntries();
+  const hidden = hiddenCategories(profile);
+  const kinds = SHELF_KINDS.filter((k) => !['place', 'food', 'travel'].includes(k.id) && !hidden.has(k.category));
+  return (
+    <>
+      {kinds.map((k) => (
+        <Shelf key={k.id} title={`${k.icon} ${k.label}`} subtitle={k.id === 'book' ? 'Trending this week' : k.id === 'music' ? 'Most played near you' : k.id === 'event' ? 'Coming up' : 'Popular now'} load={() => trendingShelf(k.id).then((d) => d.items)} hideAdded />
+      ))}
+      <p className="hint">Cafés, places and trips: search them at the top (try “cafes in Ponsonby”). Anything else, add it yourself.</p>
+      <CustomAdd />
     </>
   );
 }

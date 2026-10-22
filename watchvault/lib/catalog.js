@@ -626,9 +626,29 @@ const DRAMA_WORDS = new Set(['kdrama', 'kdramas', 'jdrama', 'cdrama', 'dizi']);
  * Reads filter words out of a search: "punjabi movies" → { language: 'pa', type: 'movie', rest: '' }.
  * Only applies when the leftover words are a genre or nothing, so real titles ("Korean Odyssey") still search normally.
  */
+const SHELF_WORDS = {
+  book: 'book', books: 'book', novel: 'book', novels: 'book',
+  manga: 'manga', manhwa: 'manga', manhua: 'manga', webtoon: 'manga', webtoons: 'manga', comic: 'manga', comics: 'manga',
+  game: 'game', games: 'game', videogame: 'game', videogames: 'game',
+  song: 'music', songs: 'music', album: 'music', albums: 'music', music: 'music',
+  podcast: 'podcast', podcasts: 'podcast',
+  cafe: 'food', cafes: 'food', café: 'food', cafés: 'food', restaurant: 'food', restaurants: 'food', bar: 'food', bars: 'food', brunch: 'food', coffee: 'food',
+  concert: 'event', concerts: 'event', gig: 'event', gigs: 'event', festival: 'event', festivals: 'event',
+};
 export function readFilterWords(text) {
   const words = String(text || '').toLowerCase().replace(/[-–]/g, ' ').split(/\s+/).filter(Boolean);
   if (!words.length) return null;
+  // "fantasy books", "punjabi songs", "cafes in ponsonby": a shelf plus what to look for.
+  // Only at the end ("fantasy books") or before in/near ("cafes in ponsonby"), so titles like "Game of Thrones" still search.
+  const sw = (w) => SHELF_WORDS[String(w || '').replace(/[^a-zé]/g, '')];
+  const last = words[words.length - 1];
+  const shelfWord = sw(last) ? last : sw(words[0]) && ['in', 'near', 'around'].includes(words[1]) ? words[0] : words.length === 1 && sw(words[0]) ? words[0] : null;
+  if (shelfWord && words.length > 1) {
+    const type = SHELF_WORDS[shelfWord.replace(/[^a-zé]/g, '')];
+    const rest = words.filter((w) => (w !== shelfWord || type === 'food') && !['in', 'near', 'around', 'best', 'top', 'good', 'the'].includes(w)).join(' ');
+    return { type, q: rest || '' };
+  }
+  if (shelfWord) return { type: SHELF_WORDS[shelfWord.replace(/[^a-zé]/g, '')], q: '' };
   const found = {};
   const rest = [];
   for (const w of words) {

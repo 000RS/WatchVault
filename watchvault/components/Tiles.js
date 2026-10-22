@@ -8,7 +8,9 @@ import EntryEditor from './EntryEditor';
 import { Credits, WhereToWatch } from './TitleExtras';
 import { Icon } from './Icons';
 import { ListsField } from './EntryExtras';
-import { CATEGORY_LABEL, CATEGORY_SHORT, STATUS_LABEL, completionPct, progressLabel } from '@/lib/categories';
+import { CATEGORY_LABEL, CATEGORY_SHORT, completionPct, isScreen, kindInfo, kindOf, progressLabel, statusLabel, statusesFor } from '@/lib/categories';
+import { itemByline } from '@/lib/shelves';
+import { ItemLinks } from './ItemLinks';
 import { getTitleFull } from '@/lib/catalog';
 import { addTitle, entryHref, itemHref } from '@/lib/actions';
 import { toast } from '@/lib/toast';
@@ -27,6 +29,20 @@ const ADD_OPTIONS = [
   { status: 'clips', label: 'Seen clips', hint: 'reels, TikTok' },
 ];
 
+/** Add buttons in the words of the kind: "Read it", "Been there", "Want to play". */
+function optionsFor(item) {
+  if (isScreen(item)) return ADD_OPTIONS;
+  const k = kindOf(item);
+  const sts = statusesFor(item);
+  const today = { book: 'Finished today', manga: 'Read today', game: 'Finished today', music: 'Listened today', podcast: 'Listened today', place: 'Been today', event: 'Went today', travel: 'Back from it', custom: 'Done today' }[k];
+  const out = [];
+  for (const st of sts) {
+    out.push({ status: st.id, label: st.label, primary: st.id === 'completed' });
+    if (st.id === 'completed' && today) out.push({ status: 'completed', label: today, hint: 'logs it in your diary', today: true });
+  }
+  return out;
+}
+
 export function AddOptions({ item, onAdded }) {
   const [busy, setBusy] = useState(false);
   const isMovie = item.mediaType === 'movie';
@@ -35,7 +51,7 @@ export function AddOptions({ item, onAdded }) {
     try {
       const today = new Date().toISOString().slice(0, 10);
       await addTitle(item, o.status, o.pct != null ? { pct: o.pct } : o.status === 'tried' ? { episodes: 2 } : o.today ? { fields: { watched_from: today, watched_to: today } } : {});
-      toast(`${item.title}: ${o.pct === 50 ? 'half watched' : STATUS_LABEL[o.status].toLowerCase()}`);
+      toast(`${item.title}: ${o.pct === 50 ? 'half watched' : statusLabel(item, o.status).toLowerCase()}`);
       onAdded?.();
     } catch {
       /* addTitle already showed the error */
@@ -45,7 +61,7 @@ export function AddOptions({ item, onAdded }) {
   }
   return (
     <div className="add-grid">
-      {ADD_OPTIONS.filter((o) => (!o.movieOnly || isMovie) && (!o.showOnly || !isMovie)).map((o) => (
+      {optionsFor(item).filter((o) => (!o.movieOnly || isMovie) && (!o.showOnly || !isMovie)).map((o) => (
         <button key={o.label} className={`btn ${o.primary ? 'primary' : ''}`} disabled={busy} onClick={() => add(o)}>
           {o.label}
           {o.hint && <small>{o.hint}</small>}
@@ -66,8 +82,10 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
   const id = item?.sourceId || given?.source_id;
   const [full, setFull] = useState(null);
 
+  const screen = isScreen(item || given);
   useEffect(() => {
     if (!open || full) return;
+    if (!screen) return setFull({ title: item || null, cast: [], crew: [], companies: [], providers: null });
     let alive = true;
     getTitleFull(src, type, id)
       .then((f) => alive && setFull(f))
@@ -81,11 +99,12 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
   const entry = (given && [...index.values()].find((e) => e.id === given.id)) || (t ? lookup(t) : undefined) || index.get(`${src}:${type}:${id}`);
   const poster = t?.poster || entry?.poster_url;
   const name = t?.title || entry?.title || '';
+  const byline = !screen ? itemByline(t?.meta ? t : { ...t, meta: entry?.meta, year: entry?.year }) : null;
   const facts = [
-    t?.year || entry?.year,
+    byline || t?.year || entry?.year,
     CATEGORY_LABEL[entry?.category || t?.category],
     t?.mediaType === 'movie' ? (t?.runtime ? `${t.runtime} min` : null) : t?.totalSeasons ? `${t.totalSeasons} ${t.totalSeasons === 1 ? 'season' : 'seasons'}` : null,
-    t?.rating ? `${Number(t.rating).toFixed(1)} on TMDB` : null,
+    t?.rating ? `${Number(t.rating).toFixed(1)}${t.source === 'tmdb' ? ' on TMDB' : '/10'}` : null,
   ].filter(Boolean);
   const href = entry ? entryHref(entry) : t ? itemHref(t) : '#';
 
@@ -97,14 +116,18 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
         </div>
       )}
       <div className="detail-top">
-        <Poster src={poster} title={name} />
+        <Poster src={poster} title={name} icon={!screen ? kindInfo(t || entry).icon : null} />
         <div className="stack-sm">
           <h3 className="detail-title">{name}</h3>
           <p className="muted small">{facts.join('  ·  ')}</p>
           {t?.genres?.length > 0 && <p className="muted small">{t.genres.slice(0, 4).join(', ')}</p>}
-          <Link href={href} className="link small" onClick={onClose}>
-            Open full page
-          </Link>
+          {screen ? (
+            <Link href={href} className="link small" onClick={onClose}>
+              Open full page
+            </Link>
+          ) : (
+            <ItemLinks item={t?.meta ? t : { ...(t || {}), meta: entry?.meta || {}, title: name, mediaType: entry?.media_type }} />
+          )}
         </div>
       </div>
 
@@ -118,7 +141,7 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
         <AddOptions item={t} />
       ) : null}
 
-      {t && <ListsField title={t} />}
+      {t && t.sourceId && <ListsField title={t} />}
 
       {src === 'tmdb' && (
         <div className="stack">
@@ -157,7 +180,7 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
   async function quickAdd() {
     try {
       await addTitle(item, 'completed');
-      toast(`${item.title} added as completed`);
+      toast(`${item.title}: ${statusLabel(item, 'completed').toLowerCase()}`);
     } catch {
       /* addTitle already showed the error */
     }
@@ -166,8 +189,8 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
   return (
     <div className="tile">
       <button className="tile-link as-button" onClick={() => setOpen(true)} aria-label={`${item.title}, details`} {...tilt}>
-        <Poster src={item.poster} title={item.title} size={size}>
-          {entry && <span className={`tile-badge st-${entry.status}`}>{STATUS_LABEL[entry.status]}</span>}
+        <Poster src={item.poster} title={item.title} size={size} icon={!isScreen(item) ? kindInfo(item).icon : null}>
+          {entry && <span className={`tile-badge st-${entry.status}`}>{statusLabel(entry)}</span>}
         </Poster>
       </button>
       <div className="tile-actions">
@@ -179,7 +202,7 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
             <Icon.Check width={16} height={16} />
           </button>
         ) : (
-          <button className="tick" onClick={quickAdd} aria-label={`Mark ${item.title} as watched`}>
+          <button className="tick" onClick={quickAdd} aria-label={`Mark ${item.title} as ${statusLabel(item, 'completed').toLowerCase()}`}>
             <Icon.Check width={16} height={16} />
           </button>
         )}
@@ -189,7 +212,7 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
           <button className="tile-title as-text" onClick={() => setOpen(true)}>
             {item.title}
           </button>
-          <span className="tile-sub">{[item.year, CATEGORY_SHORT[item.category]].filter(Boolean).join(', ')}</span>
+          <span className="tile-sub">{isScreen(item) ? [item.year, CATEGORY_SHORT[item.category]].filter(Boolean).join(', ') : itemByline(item) || CATEGORY_SHORT[item.category]}</span>
         </div>
       )}
       {open && <DetailSheet item={item} open={open} onClose={() => setOpen(false)} />}
@@ -202,7 +225,8 @@ export function EntryTile({ entry, selecting = false, selected = false, onToggle
   const [open, setOpen] = useState(false);
   const pct = completionPct(entry);
   const body = (
-    <Poster src={entry.poster_url} title={entry.title}>
+    <Poster src={entry.poster_url} title={entry.title} icon={!isScreen(entry) ? kindInfo(entry).icon : null}>
+      {entry.favourite && <span className="fav-badge" aria-label="Favourite">♥</span>}
       {selecting && <span className={`select-dot ${selected ? 'on' : ''}`}>{selected && <Icon.Check width={14} height={14} />}</span>}
       {pct != null && pct > 0 && pct < 100 && (
         <span className="progress-line" aria-hidden="true">
@@ -235,7 +259,15 @@ export function EntryTile({ entry, selecting = false, selected = false, onToggle
         </button>
         <span className="tile-sub">
           <span className={`dot st-${entry.status}`} aria-hidden="true" />
-          {entry.status === 'completed' ? (entry.media_type === 'movie' ? 'Watched' : progressLabel(entry)) : entry.status === 'plan' || entry.status === 'clips' ? STATUS_LABEL[entry.status] : `${STATUS_LABEL[entry.status]}, ${progressLabel(entry).toLowerCase()}`}
+          {!isScreen(entry)
+            ? progressLabel(entry)
+            : entry.status === 'completed'
+              ? entry.media_type === 'movie'
+                ? 'Watched'
+                : progressLabel(entry)
+              : entry.status === 'plan' || entry.status === 'clips'
+                ? statusLabel(entry)
+                : `${statusLabel(entry)}, ${progressLabel(entry).toLowerCase()}`}
         </span>
         {entry.rating != null && <span className="tile-rating">{Number(entry.rating)}/10</span>}
       </div>

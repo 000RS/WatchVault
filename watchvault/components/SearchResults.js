@@ -6,6 +6,8 @@ import { LANGUAGES, SEARCH_GENRES, discoverTitles, searchEverything } from '@/li
 import { TitleTile } from './Tiles';
 import { askGuide, useAiEnabled } from './Ask';
 import { viewMemory } from '@/lib/store';
+import { SHELF_KINDS, searchAll, searchShelf, shelfKind, trendingShelf } from '@/lib/shelves';
+import CustomAdd from './CustomAdd';
 
 export const COUNTRIES = [
   ['US', 'United States'], ['GB', 'United Kingdom'], ['IN', 'India'], ['PK', 'Pakistan'], ['KR', 'South Korea'], ['JP', 'Japan'], ['CN', 'China'],
@@ -19,10 +21,13 @@ const TYPES = [
   { id: 'movie', label: 'Movies' },
   { id: 'tv', label: 'Series & dramas' },
   { id: 'anime', label: 'Anime' },
+  ...SHELF_KINDS.map((k) => ({ id: k.id, label: k.label })),
 ];
+const isShelf = (type) => Boolean(shelfKind(type));
 
 export const EMPTY_FILTERS = { type: 'all', language: '', country: '', year: '', genre: '' };
 export const filtersActive = (f) => Boolean(f.language || f.country || f.year || f.genre || f.type !== 'all');
+export const searchHint = (f) => shelfKind(f.type)?.placeholder;
 
 /** The filter row that sits under the search bar, always visible. */
 export function SearchFilters({ f, onChange }) {
@@ -37,7 +42,7 @@ export function SearchFilters({ f, onChange }) {
           </button>
         ))}
       </div>
-      <div className="toolbar">
+      {!isShelf(f.type) && <div className="toolbar">
         <select id="s-language" className="select" value={f.language} onChange={set('language')} aria-label="Language">
           <option value="">Any language</option>
           {LANGUAGES.map(([c, n]) => (
@@ -75,7 +80,15 @@ export function SearchFilters({ f, onChange }) {
             Clear filters
           </button>
         )}
-      </div>
+      </div>}
+      {isShelf(f.type) && (
+        <div className="row small">
+          <span className="muted">{['place', 'food', 'travel'].includes(f.type) ? 'Type a name or area. Results near you come first.' : 'Popular right now, or type to search.'}</span>
+          <button type="button" className="btn sm ghost" onClick={() => onChange(EMPTY_FILTERS)}>
+            Back to everything
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -110,7 +123,13 @@ export default function SearchResults({ q, f, onPick }) {
     (async () => {
       try {
         let r;
-        if (term) {
+        if (isShelf(f.type)) {
+          const d = term ? await searchShelf(f.type, term) : await trendingShelf(f.type);
+          r = { items: d.items, people: [], note: d.note };
+        } else if (term && f.type === 'all' && !f.language && !f.country && !f.year && !f.genre) {
+          const all = await searchAll(term);
+          r = { ...all.screen, shelves: all.shelves };
+        } else if (term) {
           r = await searchEverything(term, { type: f.type, year: f.year || undefined, language: f.language, country: f.country });
           if (f.genre) r = { ...r, items: r.items.filter((i) => !i.genres?.length || i.genres.some((g) => g === f.genre || g.includes(f.genre.split(' ')[0]))) };
         } else {
@@ -121,7 +140,7 @@ export default function SearchResults({ q, f, onPick }) {
         viewMemory.set(key, r);
         setRes(r);
         setError(null);
-        if (ai && term.length > 2 && r.items.length < 2 && !r.didYouMean) {
+        if (ai && !isShelf(f.type) && term.length > 2 && r.items.length < 2 && !r.didYouMean) {
           askGuide({ mode: 'resolve', q: term })
             .then((d) => id === req.current && d.titles?.length && setAiGuess(d.titles))
             .catch(() => {});
@@ -201,6 +220,7 @@ export default function SearchResults({ q, f, onPick }) {
           ))}
           {busy && Array.from({ length: res ? 6 : 12 }, (_, i) => <div key={i} className="skeleton" />)}
         </div>
+        {res?.note && <p className="hint">{res.note}</p>}
         {!term && res?.more && !busy && (
           <div className="row" style={{ justifyContent: 'center' }}>
             <button className="btn" onClick={more}>
@@ -209,6 +229,22 @@ export default function SearchResults({ q, f, onPick }) {
           </div>
         )}
       </section>
+
+      {res?.shelves &&
+        SHELF_KINDS.filter((k) => res.shelves[k.id]?.length).map((k) => (
+          <section key={k.id} className="section">
+            <h2 className="h-section">
+              {k.icon} {k.label}
+            </h2>
+            <div className="shelf-track">
+              {res.shelves[k.id].map((i) => (
+                <TitleTile key={`${i.source}-${i.sourceId}`} item={i} />
+              ))}
+            </div>
+          </section>
+        ))}
+
+      {res && !busy && (term || isShelf(f.type)) && <CustomAdd defaultTitle={term} defaultKind={isShelf(f.type) ? f.type : 'custom'} />}
     </>
   );
 }

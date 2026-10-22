@@ -18,6 +18,7 @@ const region = (code) => {
     return code;
   }
 };
+const BEYOND_WORDS = { books: 'books read', manga: 'manga read', games: 'games played', music: 'albums and songs loved', podcasts: 'podcasts finished', food: 'food spots tried', places: 'places visited', events: 'events gone to', travel: 'trips taken', other: 'other things done' };
 const tmdbImg = (p) => (p ? `https://image.tmdb.org/t/p/w185${p}` : null);
 
 export default function WrappedPage() {
@@ -47,7 +48,7 @@ export default function WrappedPage() {
   }, [slides.length, router]);
 
   if (!s) return <div className="skeleton" style={{ height: 480, aspectRatio: 'auto' }} />;
-  if (!s.titlesTouched)
+  if (!s.titlesTouched && !s.beyond?.length)
     return (
       <div className="empty">
         <h1 className="h-page">Nothing for {year} yet</h1>
@@ -225,6 +226,22 @@ function buildSlides(s, { year, partial, name }) {
           <p className="wrapped-line">
             in {s.languages.length} language{s.languages.length === 1 ? '' : 's'}. Most of all: {s.countries.slice(0, 3).map(([c]) => region(c)).join(', ')}.
           </p>
+        </>
+      ),
+    });
+  if (s.beyond?.length)
+    out.push({
+      tone: 1,
+      render: () => (
+        <>
+          <p className="wrapped-kicker">Off the screen, you also</p>
+          <ul className="wrapped-beyond">
+            {s.beyond.slice(0, 6).map((b) => (
+              <li key={b.category}>
+                <b>{b.count}</b> {BEYOND_WORDS[b.category] || CATEGORY_LABEL[b.category]?.toLowerCase() || 'other things'}
+              </li>
+            ))}
+          </ul>
         </>
       ),
     });

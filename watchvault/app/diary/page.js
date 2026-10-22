@@ -9,6 +9,7 @@ import { Heatmap, Kpi } from '@/components/Charts';
 import Poster from '@/components/Poster';
 import { DetailSheet } from '@/components/Tiles';
 import { toast } from '@/lib/toast';
+import { statusLabel } from '@/lib/categories';
 
 const fmtMin = (m) => (m >= 60 ? `${Math.round(m / 6) / 10} h` : `${Math.round(m)} min`);
 
@@ -127,7 +128,8 @@ export default function DiaryPage() {
                       </button>
                       <span className="cal-text">
                         <b>{r.entry?.title || r.title}</b>
-                        <span className="muted small">{describe(r)}</span>
+                        <span className="muted small">{describe(r)}{r.with_whom ? ` · with ${r.with_whom}` : ''}</span>
+                        {r.note && <span className="small">“{r.note}”</span>}
                         <button className="as-text-link small" style={{ justifySelf: 'start' }} onClick={() => remove(r)}>
                           Remove
                         </button>
@@ -165,13 +167,15 @@ function groupEpisodes(list) {
   return out;
 }
 function describe(r) {
-  if (r.kind === 'rewatch') return 'Rewatched';
+  if (r.kind === 'rewatch') return 'Again';
+  if (r.kind === 'visit') return 'Visited';
   if (r.kind === 'episode') {
     const n = r.items?.length || 1;
     const nums = (r.items || [r]).map((x) => x.episode).filter((x) => x > 0);
     const range = nums.length ? (nums.length > 1 ? `Episodes ${Math.min(...nums)}–${Math.max(...nums)}` : `Episode ${nums[0]}`) : `${n} episode${n > 1 ? 's' : ''}`;
     return r.season ? `Season ${r.season}, ${range.toLowerCase()}` : range;
   }
+  if (r.media_type && !['movie', 'tv', 'anime'].includes(r.media_type)) return statusLabel({ media_type: r.media_type }, 'completed');
   return r.media_type === 'movie' ? 'Watched' : 'Finished';
 }
 
@@ -180,12 +184,14 @@ function LogForm({ entries, onDone }) {
   const [pick, setPick] = useState(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [kind, setKind] = useState('watch');
+  const [note, setNote] = useState('');
+  const [withWhom, setWithWhom] = useState('');
   const [busy, setBusy] = useState(false);
   const matches = q.trim().length > 1 ? entries.filter((e) => e.title.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8) : [];
   async function save() {
     setBusy(true);
     try {
-      await addDiary({ entry_id: pick.id, watched_on: date, kind, title: pick.title, poster_url: pick.poster_url, source: pick.source, source_id: pick.source_id, media_type: pick.media_type, category: pick.category, runtime: pick.runtime });
+      await addDiary({ entry_id: pick.id, watched_on: date, kind, ...(note.trim() ? { note: note.trim().slice(0, 1000) } : {}), ...(withWhom.trim() ? { with_whom: withWhom.trim().slice(0, 120) } : {}), title: pick.title, poster_url: pick.poster_url, source: pick.source, source_id: pick.source_id, media_type: pick.media_type, category: pick.category, runtime: pick.runtime });
       toast(`Logged ${pick.title}`);
       onDone();
     } catch (e) {
@@ -213,10 +219,13 @@ function LogForm({ entries, onDone }) {
           <b>{pick.title}</b>
           <select className="select inline" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="What happened">
             <option value="watch">{pick.media_type === 'movie' ? 'Watched' : 'Finished'}</option>
-            <option value="rewatch">Rewatched</option>
+            <option value="rewatch">Again (rewatch, reread, replay)</option>
+            {pick.media_type === 'place' && <option value="visit">Visited</option>}
             {pick.media_type !== 'movie' && <option value="episode">Watched an episode</option>}
           </select>
           <input type="date" className="input" style={{ width: 'auto' }} value={date} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} aria-label="Date" />
+          <input className="input" style={{ flex: '1 1 200px', width: 'auto' }} placeholder="A note to remember it by (optional)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
+          <input className="input" style={{ flex: '0 1 180px', width: 'auto' }} placeholder="With who? (optional)" value={withWhom} onChange={(e) => setWithWhom(e.target.value)} maxLength={120} />
           <button className="btn sm primary" disabled={busy} onClick={save}>
             Log it
           </button>

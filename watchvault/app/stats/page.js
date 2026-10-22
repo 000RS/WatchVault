@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEntries } from '@/lib/store';
 import { completionRankings, computeStats, finishRates, isWatched } from '@/lib/stats';
-import { CATEGORIES, CATEGORY_LABEL, STATUSES, countLabel, languageName } from '@/lib/categories';
+import { CATEGORIES, CATEGORY_LABEL, STATUSES, countLabel, isScreen, languageName, statusLabel } from '@/lib/categories';
+import { SHELF_KINDS } from '@/lib/shelves';
 import { hasV4 } from '@/lib/list';
 import { backfillCredits } from '@/lib/actions';
 import { diaryForYear, yearSummary } from '@/lib/yearly';
@@ -28,6 +29,7 @@ const TABS = [
   ['time', 'When you watch'],
   ['taste', 'Taste'],
   ['canon', 'Canon'],
+  ['beyond', 'Beyond the screen'],
 ];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -39,7 +41,8 @@ const minutesOf = (e) => {
 
 export default function StatsPage() {
   const router = useRouter();
-  const { entries: all } = useEntries();
+  const { entries: everything } = useEntries();
+  const all = useMemo(() => (everything ? everything.filter(isScreen) : null), [everything]);
   const [tab, setTab] = useState('overview');
   const [f, setF] = useState({ shelf: 'all', media: 'all', period: 'all', language: '' });
   const [diaryRows, setDiaryRows] = useState(null);
@@ -89,7 +92,7 @@ export default function StatsPage() {
   }, [all, thisYear]);
 
   if (!s) return <div className="skeleton" style={{ height: 300, aspectRatio: 'auto' }} />;
-  if (!all?.length)
+  if (!everything?.length)
     return (
       <div className="empty">
         <h1 className="h-page">No stats yet</h1>
@@ -169,6 +172,7 @@ export default function StatsPage() {
       {tab === 'time' && <Time s={s} watched={watched} yearS={yearS} year={year} years={years} onYear={(y) => setF((x) => ({ ...x, period: String(y) }))} />}
       {tab === 'taste' && <Taste s={s} watched={watched} entries={entries} onTitle={setOpen} />}
       {tab === 'canon' && <Canon entries={entries} benchmarks={benchmarks} scope={f.shelf} />}
+      {tab === 'beyond' && <Beyond entries={everything.filter((e) => !isScreen(e))} yearS={yearS} />}
       {open && <DetailSheet entry={open} open onClose={() => setOpen(null)} />}
     </>
   );
@@ -594,6 +598,83 @@ function Taste({ s, watched, entries, onTitle }) {
         </section>
       )}
     </div>
+  );
+}
+
+/* ---------------- Beyond the screen ---------------- */
+
+function Beyond({ entries, yearS }) {
+  if (!entries.length)
+    return (
+      <div className="empty">
+        <p className="lede">Books, games, music, places and more show up here once you add them.</p>
+        <Link href="/explore?tab=shelves" className="btn primary">
+          Start a new shelf
+        </Link>
+      </div>
+    );
+  const byShelf = SHELF_KINDS.map((k) => {
+    const list = entries.filter((e) => e.category === k.category);
+    return { k, list, done: list.filter((e) => e.status === 'completed').length, now: list.filter((e) => e.status === 'watching').length, saved: list.filter((e) => e.status === 'plan').length };
+  }).filter((x) => x.list.length);
+  const tally = (list, fn) => {
+    const m = new Map();
+    for (const e of list) for (const v of [fn(e)].flat()) if (v) m.set(v, (m.get(v) || 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ key: label, label, value }));
+  };
+  const started = entries.filter((e) => e.status !== 'plan');
+  const people = (cat) => tally(started.filter((e) => e.category === cat), (e) => e.meta?.by?.split(',')[0]);
+  const books = entries.filter((e) => e.media_type === 'book' && e.status === 'completed');
+  const pages = books.reduce((a, e) => a + (e.total_episodes || 0), 0);
+  const visits = entries.filter((e) => e.media_type === 'place').reduce((a, e) => a + (e.episodes_watched || 0), 0);
+  const countries = new Set(entries.filter((e) => e.media_type === 'travel' && e.status === 'completed').map((e) => e.meta?.country || e.title));
+  const favs = entries.filter((e) => e.favourite);
+  return (
+    <>
+      <div className="kpi-grid">
+        {byShelf.map((x) => (
+          <Kpi key={x.k.id} value={`${x.k.icon} ${x.done}`} label={`${x.k.label}: ${statusLabel(x.list[0], 'completed').toLowerCase()}`} sub={[x.now && `${x.now} in progress`, x.saved && `${x.saved} saved`].filter(Boolean).join(' · ') || null} />
+        ))}
+        {pages > 0 && <Kpi value={pages.toLocaleString()} label="Pages read" />}
+        {visits > 0 && <Kpi value={visits} label="Visits to places" />}
+        {countries.size > 0 && <Kpi value={countries.size} label="Destinations been to" />}
+        {yearS?.beyond?.length > 0 && <Kpi value={yearS.beyond.reduce((a, b) => a + b.count, 0)} label={`Logged in ${yearS.year}`} />}
+      </div>
+      <div className="dash-grid">
+        {[
+          ['books', 'Authors you read most'],
+          ['music', 'Artists you listen to most'],
+          ['games', 'Studios you play most'],
+          ['manga', 'Manga creators'],
+          ['podcasts', 'Podcast hosts'],
+          ['food', 'Food spots by area'],
+          ['places', 'Places by area'],
+        ].map(([cat, title]) => {
+          const rows = people(cat);
+          return rows.length ? (
+            <section key={cat} className="dash-card">
+              <h3>{title}</h3>
+              <RankBars rows={rows} format={(v) => `${v}`} limit={8} />
+            </section>
+          ) : null;
+        })}
+        {['books', 'games', 'music', 'manga'].map((cat) => {
+          const rows = tally(started.filter((e) => e.category === cat), (e) => (e.genres || []).slice(0, 2));
+          return rows.length > 1 ? (
+            <section key={`g${cat}`} className="dash-card">
+              <h3>{CATEGORY_LABEL[cat]}: genres</h3>
+              <RankBars rows={rows} format={(v) => `${v}`} limit={8} />
+            </section>
+          ) : null;
+        })}
+        {favs.length > 0 && (
+          <section className="dash-card">
+            <h3>Favourites across every shelf</h3>
+            <RankBars rows={tally(favs, (e) => CATEGORY_LABEL[e.category])} format={(v) => `${v} ♥`} />
+          </section>
+        )}
+      </div>
+    </>
   );
 }
 

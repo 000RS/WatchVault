@@ -6,6 +6,8 @@ import { useEntries, hiddenCategories, saveProfile } from '@/lib/store';
 import { fetchActivity, fetchTopLists, friendships } from '@/lib/social';
 import { EntryRow, TasteCard, TopPodiums, VaultHero, withDefaults } from '@/components/Vault';
 import { GoalsCard, UpNext } from '@/components/UpNext';
+import { Rediscover, TonightCard, VaultShelves } from '@/components/HomeExtras';
+import { isScreen } from '@/lib/categories';
 import { ActivityList } from '@/components/ActivityList';
 import { useAuth } from '@/components/AppShell';
 import { toast } from '@/lib/toast';
@@ -32,7 +34,9 @@ export default function HomePage() {
 
   const hidden = hiddenCategories(profile);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const visible = useMemo(() => (entries || []).filter((e) => !hidden.has(e.category)), [entries, profile?.hidden_categories]);
+  const everything = useMemo(() => (entries || []).filter((e) => !hidden.has(e.category)), [entries, profile?.hidden_categories]);
+  // The vault hero, top lists and screen rows are about films and series; other shelves get their own section.
+  const visible = useMemo(() => everything.filter(isScreen), [everything]);
   const sections = withDefaults(profile?.home_sections);
 
   if (error && !entries) return <p className="notice error">{error}</p>;
@@ -59,6 +63,9 @@ export default function HomePage() {
   const shareUrl = profile?.username && typeof window !== 'undefined' ? `${window.location.origin}/u/${profile.username}` : null;
 
   const blocks = {
+    tonight: <TonightCard key="tonight" />,
+    vault: <VaultShelves key="vault" entries={everything} />,
+    rediscover: <Rediscover key="rediscover" entries={everything} />,
     upnext: <UpNext key="upnext" entries={visible} />,
     goals: <GoalsCard key="goals" entries={entries} profile={profile} />,
     continue: (
