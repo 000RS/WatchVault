@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { addBlendItem, blendFull, leaveBlend, removeBlendItem, setBlendWatched, voteBlendItem } from '@/lib/social4';
 import { displayName, sharedEntries } from '@/lib/social';
-import { searchCatalog } from '@/lib/catalog';
+import { searchAnything as searchCatalog } from '@/lib/shelves';
 import { useAuth } from '@/components/AppShell';
 import Poster from '@/components/Poster';
 import { DetailSheet } from '@/components/Tiles';
@@ -38,7 +38,7 @@ export default function BlendPage() {
   }, [b?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (q.trim().length < 2) return setResults([]);
-    const t = setTimeout(() => searchCatalog(q.trim()).then((r) => setResults(r.slice(0, 6))).catch(() => setResults([])), 300);
+    const t = setTimeout(() => searchCatalog(q.trim()).then((r) => setResults(r.slice(0, 14))).catch(() => setResults([])), 300);
     return () => clearTimeout(t);
   }, [q]);
 

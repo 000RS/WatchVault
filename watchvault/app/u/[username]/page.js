@@ -10,7 +10,7 @@ import { FriendButton } from '@/components/FriendButton';
 import { useAuth } from '@/components/AppShell';
 import { toast } from '@/lib/toast';
 import { useEntries } from '@/lib/store';
-import { FollowButton, PublicLists, Reviews, TasteMatch } from '@/components/ProfileExtras';
+import { FollowButton, PublicLists, Reviews, TasteMatch, TastePassport } from '@/components/ProfileExtras';
 
 export default function ProfilePage() {
   const { username } = useParams();
@@ -56,6 +56,7 @@ export default function ProfilePage() {
   const size = profile.showcase_size || 5;
   const hidden = new Set(profile.hidden_categories || []);
   const visible = entries.filter((e) => !hidden.has(e.category));
+  const screen = visible.filter((e) => ['movie', 'tv', 'anime'].includes(e.media_type));
 
   const friendAction = async (fn, msg) => {
     try {
@@ -96,9 +97,10 @@ export default function ProfilePage() {
 
   return (
     <>
-      <VaultHero profile={profile} entries={visible} topLists={topLists} isSelf={isSelf} actions={actions} />
+      <VaultHero profile={profile} entries={screen} topLists={topLists} isSelf={isSelf} actions={actions} />
+      <TastePassport entries={entries} profile={profile} />
       {!isSelf && <TasteMatch mine={myEntries} theirs={visible} name={profile.display_name || `@${profile.username}`} />}
-      <TopPodiums entries={visible} topLists={topLists} size={size} hidden={hidden} />
+      <TopPodiums entries={screen} topLists={topLists} size={size} hidden={hidden} />
       <EntryRow title="Watching now" entries={visible.filter((e) => e.status === 'watching')} />
       {activity.length > 0 && (
         <section className="section">
@@ -108,7 +110,7 @@ export default function ProfilePage() {
       )}
       <Reviews entries={visible} />
       <PublicLists userId={profile.id} />
-      <TasteCard entries={visible} isSelf={isSelf} />
+      <TasteCard entries={screen} isSelf={isSelf} />
     </>
   );
 }

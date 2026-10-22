@@ -43,18 +43,26 @@ export const useAuth = () => useContext(AuthContext);
 
 const PRIMARY = [
   { href: '/', label: 'Home', icon: Icon.Home },
-  { href: '/list', label: 'My List', icon: Icon.List },
+  { href: '/list', label: 'My Vault', icon: Icon.List },
   { href: '/explore', label: 'Explore', icon: Icon.Compass },
-  { href: '/stats', label: 'Stats', icon: Icon.Chart },
+  { href: '/swipe', label: 'Swipe', icon: Icon.Flame },
+  { href: '/tonight', label: 'Tonight', icon: Icon.Moon, desktopOnly: true },
+  { href: '/stats', label: 'Stats', icon: Icon.Chart, desktopOnly: true },
 ];
 const SECONDARY = [
+  { href: '/tonight', label: 'Tonight', icon: Icon.Moon, mobileOnly: true },
+  { href: '/stats', label: 'Stats', icon: Icon.Chart, mobileOnly: true },
+  { href: '/discover', label: 'Discover', icon: Icon.Wand },
+  { href: '/taste', label: 'Taste', icon: Icon.Dna },
+  { href: '/together', label: 'Together', icon: Icon.Blend },
+  { href: '/trips', label: 'Screen trips', icon: Icon.Map },
+  { href: '/memories', label: 'Memories', icon: Icon.Gallery },
   { href: '/wrapped', label: 'Wrapped', icon: Icon.Spark },
   { href: '/diary', label: 'Diary', icon: Icon.Book },
   { href: '/calendar', label: 'Calendar', icon: Icon.Calendar },
   { href: '/lists', label: 'Lists', icon: Icon.Stack },
   { href: '/top', label: 'Top lists', icon: Icon.Trophy },
   { href: '/friends', label: 'Friends', icon: Icon.Users },
-  { href: '/blends', label: 'Blends', icon: Icon.Blend },
   { href: '/activity', label: 'History', icon: Icon.Clock },
   { href: '/import', label: 'Import & export', icon: Icon.Upload },
   { href: '/settings', label: 'Settings', icon: Icon.Settings },
@@ -160,7 +168,7 @@ function Frame({ children }) {
             </Link>
           ))}
           <div className="side-gap" />
-          {links.map((l) => (
+          {links.filter((l) => !l.mobileOnly).map((l) => (
             <Link key={l.href} href={l.href} className={`side-link ${active(l.href) ? 'on' : ''}`}>
               <l.icon />
               <span>{l.label}</span>
@@ -182,7 +190,7 @@ function Frame({ children }) {
       </main>
 
       <nav className="tabbar" aria-label="Main">
-        {PRIMARY.map((l) => (
+        {PRIMARY.filter((l) => !l.desktopOnly).map((l) => (
           <Link key={l.href} href={l.href} className={`tab ${active(l.href) ? 'on' : ''}`}>
             <l.icon />
             <span>{l.label}</span>

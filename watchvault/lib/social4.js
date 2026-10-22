@@ -15,7 +15,7 @@ async function me() {
 function check(error) {
   if (!error) return;
   if (/relation .* does not exist|schema cache|column .* does not exist|function .* does not exist/i.test(error.message))
-    throw new Error('This needs the version 4 database upgrade. Run supabase/upgrade_v4.sql in Supabase (see README).');
+    throw new Error('This needs the latest database upgrade. Run supabase/upgrade_v5.sql in Supabase (see README).');
   throw new Error(error.message);
 }
 
@@ -223,4 +223,68 @@ export async function feedbackInbox() {
 export async function setFeedbackStatus(id, status) {
   const { error } = await sb().from('feedback').update({ status }).eq('id', id);
   check(error);
+}
+
+/* ---------------- Recommendation battles ---------------- */
+
+export async function battlesFor(userIds) {
+  if (!userIds.length) return [];
+  const { data, error } = await sb().from('battles').select('*').in('user_id', userIds).order('created_at', { ascending: false }).limit(40);
+  check(error);
+  const ids = data.map((b) => b.id);
+  const { data: votes } = ids.length ? await sb().from('battle_votes').select('*').in('battle_id', ids) : { data: [] };
+  return data.map((b) => ({ ...b, votes: (votes || []).filter((v) => v.battle_id === b.id) }));
+}
+export async function createBattle(question, a, b) {
+  const { data, error } = await sb().from('battles').insert({ question: question || null, a: itemOf(a), b: itemOf(b) }).select().single();
+  check(error);
+  return { ...data, votes: [] };
+}
+export async function voteBattle(battleId, pick) {
+  const uid = await me();
+  const { error } = await sb().from('battle_votes').upsert({ battle_id: battleId, user_id: uid, pick });
+  check(error);
+}
+export async function deleteBattle(id) {
+  const { error } = await sb().from('battles').delete().eq('id', id);
+  check(error);
+}
+
+/* ---------------- Friend challenges ---------------- */
+
+export async function myChallenges() {
+  const { data, error } = await sb().from('challenges').select('*, challenge_members(user_id)').order('ends_on', { ascending: true });
+  check(error);
+  return data.map((c) => ({ ...c, members: [...new Set([c.created_by, ...c.challenge_members.map((m) => m.user_id)])] }));
+}
+export async function createChallenge({ title, rule, ends_on, memberIds }) {
+  const { data, error } = await sb().from('challenges').insert({ title, rule, ends_on }).select().single();
+  check(error);
+  const uid = await me();
+  const rows = [...new Set([uid, ...memberIds])].map((user_id) => ({ challenge_id: data.id, user_id }));
+  const { error: e2 } = await sb().from('challenge_members').insert(rows);
+  check(e2);
+  return data;
+}
+export async function leaveChallenge(id, owner) {
+  const uid = await me();
+  const { error } = owner ? await sb().from('challenges').delete().eq('id', id) : await sb().from('challenge_members').delete().eq('challenge_id', id).eq('user_id', uid);
+  check(error);
+}
+/** How far one person is: things finished in the window that match the rule. */
+export function challengeProgress(entries, c) {
+  const r = c.rule || {};
+  const from = c.starts_on;
+  const to = c.ends_on;
+  const day = (e) => String(e.watched_to || e.updated_at || '').slice(0, 10);
+  return entries.filter(
+    (e) =>
+      e.status === 'completed' &&
+      day(e) >= from &&
+      day(e) <= to &&
+      (!r.shelf || r.shelf === 'any' || e.category === r.shelf || (r.shelf === 'screen' && ['movie', 'tv', 'anime'].includes(e.media_type))) &&
+      (!r.gems || (e.popularity != null && e.popularity < 25)) &&
+      (!r.genre || (e.genres || []).includes(r.genre)) &&
+      (!r.language || e.original_language === r.language)
+  ).length;
 }

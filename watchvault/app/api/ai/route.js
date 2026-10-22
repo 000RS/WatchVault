@@ -229,6 +229,34 @@ export async function POST(request) {
       return Response.json({ titles: (Array.isArray(titles) ? titles : []).filter((t) => typeof t === 'string').slice(0, 3) });
     }
 
+    if (body.mode === 'crossover') {
+      // "I loved Attack on Titan: give me books, games, music… with the same feel."
+      const from = String(body.from || '').slice(0, 200);
+      const shelves = (Array.isArray(body.shelves) ? body.shelves : ['film', 'series', 'book', 'manga', 'game', 'music', 'podcast']).slice(0, 8).map(String);
+      const d = await gemini({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `Someone loved "${from}". Recommend things with the same feel (themes, tension, emotions, style), not just the same topic, for each of these kinds: ${shelves.join(', ')}. Use only real, existing works. For each kind give up to 3 picks. Reply as JSON: {"picks":[{"kind":"book","title":"…","by":"author/artist/studio or empty","why":"one short sentence on the shared feel"}],"feel":"one sentence describing what they probably loved about it"}.`,
+              },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0.6, responseMimeType: 'application/json', maxOutputTokens: 1500 },
+      });
+      const text = d.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '{}';
+      let out = {};
+      try {
+        out = JSON.parse(text);
+      } catch {
+        out = {};
+      }
+      const picks = (Array.isArray(out.picks) ? out.picks : []).filter((p) => p && typeof p.title === 'string').slice(0, 24).map((p) => ({ kind: String(p.kind || '').toLowerCase(), title: p.title.slice(0, 120), by: String(p.by || '').slice(0, 80), why: String(p.why || '').slice(0, 200) }));
+      return Response.json({ picks, feel: typeof out.feel === 'string' ? out.feel.slice(0, 240) : null });
+    }
+
     const history = (Array.isArray(body.messages) ? body.messages : []).slice(-16);
     const contents = history
       .filter((m) => m && typeof m.text === 'string' && m.text.trim())

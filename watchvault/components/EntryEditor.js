@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CATEGORIES, STATUSES, STATUS_LABEL, episodesUpTo, seasonsFinished, suggestStatus } from '@/lib/categories';
+import { CATEGORIES, STATUS_LABEL, episodesUpTo, isScreen, kindInfo, kindOf, seasonsFinished, statusesFor, suggestStatus } from '@/lib/categories';
 import { progressFor } from '@/lib/list';
 import { removeEntries, updateEntry } from '@/lib/store';
 import { fillDetails } from '@/lib/actions';
@@ -47,8 +47,12 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
   }, [entry.id]);
 
   const counts = entry.season_episode_counts || [];
+  const screen = isScreen(entry);
+  const kind = kindInfo(entry);
+  const statuses = statusesFor(entry);
   const isMovie = entry.media_type === 'movie';
-  const hasSeasons = !isMovie && counts.length > 0;
+  const hasSeasons = screen && !isMovie && counts.length > 0;
+  const UNIT_LABEL = { book: 'Pages read', manga: 'Chapters read', podcast: 'Episodes heard', game: 'Hours played', place: 'Visits' };
   const total = entry.total_episodes ?? (counts.length ? counts.reduce((a, b) => a + b, 0) : null);
   const finished = useMemo(() => seasonsFinished(entry), [entry]);
 
@@ -92,13 +96,13 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
       <div className="field-block">
         <span className="field-label">Status</span>
         <div className="seg" role="radiogroup" aria-label="Status">
-          {STATUSES.map((s) => (
+          {statuses.map((s) => (
             <button key={s.id} role="radio" aria-checked={entry.status === s.id} className={`seg-btn st-${s.id} ${entry.status === s.id ? 'on' : ''}`} onClick={() => setStatus(s.id)}>
               {s.label}
             </button>
           ))}
         </div>
-        <p className="hint">{STATUSES.find((x) => x.id === entry.status)?.hint}</p>
+        {screen && <p className="hint">{statuses.find((x) => x.id === entry.status)?.hint}</p>}
         {suggestStatus(entry) && (
           <p className="hint">
             {suggestStatus(entry) === 'tried' ? 'Only a few episodes in.' : 'You got through a full season or more.'}{' '}
@@ -166,7 +170,17 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
         )
       )}
 
-      {!isMovie && !hasSeasons && (
+      {!screen && UNIT_LABEL[kindOf(entry)] && (
+        <div className="field-block">
+          <span className="field-label">{UNIT_LABEL[kindOf(entry)]}</span>
+          <div className="stepper-row">
+            <Stepper value={entry.episodes_watched || 0} max={entry.total_episodes || undefined} onChange={(n) => save({ episodes_watched: n, ...(entry.status === 'plan' && n > 0 ? { status: kindOf(entry) === 'place' ? 'completed' : 'watching' } : {}), ...(entry.total_episodes && n >= entry.total_episodes && entry.status === 'watching' ? { status: 'completed' } : {}) })} label={kind.unit || 'count'} wide />
+            <span className="muted">{entry.total_episodes ? `of ${entry.total_episodes}` : ''}</span>
+          </div>
+        </div>
+      )}
+
+      {screen && !isMovie && !hasSeasons && (
         <div className="field-block">
           <span className="field-label">Episodes watched</span>
           <div className="stepper-row">
@@ -187,12 +201,19 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
         </div>
       </div>
 
-      {['completed', 'watching', 'on_hold', 'stopped'].includes(entry.status) && <RewatchField entry={entry} />}
+      <label className="row small fav-row">
+        <span className="toggle">
+          <input type="checkbox" checked={Boolean(entry.favourite)} onChange={(e) => save({ favourite: e.target.checked })} aria-label="Favourite" />
+          <span />
+        </span>
+        ♥ One of my favourites
+      </label>
+      {screen && ['completed', 'watching', 'on_hold', 'stopped'].includes(entry.status) && <RewatchField entry={entry} />}
       {entry.status !== 'plan' && <ReviewField entry={entry} />}
       <TagsField entry={entry} />
 
       <div className="field-block">
-        <span className="field-label">When did you watch it?</span>
+        <span className="field-label">{screen ? 'When did you watch it?' : kindOf(entry) === 'place' || kindOf(entry) === 'travel' || kindOf(entry) === 'event' ? 'When did you go?' : 'When?'}</span>
         <div className="chips">
           {[
             ['today', 'Today'],

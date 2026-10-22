@@ -12,13 +12,59 @@ export const CATEGORIES = [
   { id: 'cdrama', label: 'C-Drama', short: 'C-Drama' },
   { id: 'jdrama', label: 'J-Drama', short: 'J-Drama' },
   { id: 'thai', label: 'Thai drama', short: 'Thai' },
-  { id: 'other', label: 'Other', short: 'Other' },
+  { id: 'books', label: 'Books', short: 'Book', kind: 'book' },
+  { id: 'manga', label: 'Manga & comics', short: 'Manga', kind: 'manga' },
+  { id: 'games', label: 'Games', short: 'Game', kind: 'game' },
+  { id: 'music', label: 'Music', short: 'Music', kind: 'music' },
+  { id: 'podcasts', label: 'Podcasts', short: 'Podcast', kind: 'podcast' },
+  { id: 'food', label: 'Food & drink', short: 'Food', kind: 'place' },
+  { id: 'places', label: 'Places', short: 'Place', kind: 'place' },
+  { id: 'events', label: 'Events & experiences', short: 'Event', kind: 'event' },
+  { id: 'travel', label: 'Travel', short: 'Trip', kind: 'travel' },
+  { id: 'other', label: 'Other', short: 'Other', kind: 'custom' },
 ];
+
+/* ---------------- Kinds: what sort of thing an entry is ---------------- */
+
+export const SCREEN_TYPES = new Set(['movie', 'tv', 'anime']);
+/** Movies, series and anime: the things most of the app was built around. */
+export const isScreen = (e) => SCREEN_TYPES.has(e?.media_type || e?.mediaType);
+export const SCREEN_SHELVES = new Set(CATEGORIES.filter((c) => !c.kind).map((c) => c.id));
+
+/** Words for each kind, so a book is "read" and a café is "visited". */
+export const KINDS = {
+  screen: { noun: 'title', unit: 'episodes', verbs: { completed: 'Completed', watching: 'Watching', plan: 'Plan to watch', on_hold: 'On hold', stopped: 'Stopped', tried: 'Tried', dropped: 'Dropped', clips: 'Seen clips' } },
+  book: { noun: 'book', unit: 'pages', icon: '📖', verbs: { completed: 'Read', watching: 'Reading', plan: 'Want to read', on_hold: 'Paused', stopped: 'Stopped', dropped: "Didn't finish" } },
+  manga: { noun: 'series', unit: 'chapters', icon: '📚', verbs: { completed: 'Read', watching: 'Reading', plan: 'Want to read', on_hold: 'Paused', stopped: 'Caught up / stopped', tried: 'Tried', dropped: 'Dropped' } },
+  game: { noun: 'game', unit: 'hours', icon: '🎮', verbs: { completed: 'Finished', watching: 'Playing', plan: 'Want to play', on_hold: 'Paused', stopped: 'Stopped', tried: 'Tried', dropped: 'Dropped' } },
+  music: { noun: 'album or song', unit: null, icon: '🎵', verbs: { completed: 'Listened', watching: 'On repeat', plan: 'Want to listen', dropped: 'Not for me' } },
+  podcast: { noun: 'podcast', unit: 'episodes', icon: '🎙️', verbs: { completed: 'Finished', watching: 'Listening', plan: 'Want to listen', on_hold: 'Paused', tried: 'Tried', dropped: 'Dropped' } },
+  place: { noun: 'place', unit: 'visits', icon: '📍', verbs: { completed: 'Been there', watching: 'Regular spot', plan: 'Want to go', dropped: 'Not for me' } },
+  event: { noun: 'event', unit: null, icon: '🎟️', verbs: { completed: 'Went', watching: 'Going', plan: 'Interested', dropped: 'Missed it' } },
+  travel: { noun: 'destination', unit: null, icon: '🧭', verbs: { completed: 'Been there', watching: 'Planning', plan: 'Dream trip', dropped: 'Not for me' } },
+  custom: { noun: 'thing', unit: null, icon: '✦', verbs: { completed: 'Done', watching: 'In progress', plan: 'Want to', on_hold: 'Paused', dropped: 'Abandoned' } },
+};
+const KIND_OF_TYPE = { movie: 'screen', tv: 'screen', anime: 'screen', book: 'book', manga: 'manga', game: 'game', music: 'music', podcast: 'podcast', place: 'place', event: 'event', travel: 'travel', custom: 'custom' };
+export const kindOf = (e) => KIND_OF_TYPE[e?.media_type || e?.mediaType] || 'screen';
+export const kindInfo = (e) => KINDS[kindOf(e)];
+/** The status label in the words of that kind ("Read", "Been there"). */
+export const statusLabel = (e, status = e?.status) => kindInfo(e).verbs[status] || KINDS.screen.verbs[status] || status;
+/** The statuses that make sense for this kind, in the usual order. */
+export const statusesFor = (e) => {
+  const v = kindInfo(e).verbs;
+  return Object.keys(v).map((id) => ({ id, label: v[id], hint: kindOf(e) === 'screen' ? STATUS_HINTS[id] : null }));
+};
+const STATUS_HINTS = {
+  completed: 'Watched to the end', watching: 'Watching it now', plan: 'On your watchlist', on_hold: 'Paused, you mean to come back',
+  stopped: 'Watched a good part, then stopped', tried: 'Watched a few episodes to see', dropped: "Gave it a chance, didn't like it", clips: 'Know it from reels, TikTok or YouTube',
+};
 /** "4 movies, 2 K-Dramas": shelf names as they read mid-sentence. */
 const COUNT_WORDS = {
   movies: ['movie', 'movies'], series: ['series', 'series'], anime: ['anime', 'anime'], animation: ['animated title', 'animated titles'], other: ['other title', 'other titles'],
   kdrama: ['K-Drama', 'K-Dramas'], turkish: ['Turkish drama', 'Turkish dramas'], indian: ['Indian title', 'Indian titles'],
   pakistani: ['Pakistani drama', 'Pakistani dramas'], cdrama: ['C-Drama', 'C-Dramas'], jdrama: ['J-Drama', 'J-Dramas'], thai: ['Thai drama', 'Thai dramas'],
+  books: ['book', 'books'], manga: ['manga', 'manga'], games: ['game', 'games'], music: ['album', 'albums'], podcasts: ['podcast', 'podcasts'],
+  food: ['food spot', 'food spots'], places: ['place', 'places'], events: ['event', 'events'], travel: ['destination', 'destinations'],
 };
 export function countLabel(c) {
   const w = COUNT_WORDS[c.id] || [c.label, c.label];
@@ -133,6 +179,13 @@ export function seasonsFinished(e) {
 
 export function progressLabel(e) {
   if (!e) return '';
+  if (!isScreen(e)) {
+    const k = kindInfo(e);
+    const n = e.episodes_watched || 0;
+    if (k.unit && n && e.status !== 'completed') return e.total_episodes ? `${n} of ${e.total_episodes} ${k.unit}` : `${n} ${k.unit}`;
+    if (e.media_type === 'place' && n > 1) return `${n} visits`;
+    return statusLabel(e);
+  }
   if (e.status === 'clips') return 'Seen clips';
   if (e.status === 'plan') return 'Not started';
   if (e.media_type === 'movie') {
@@ -159,6 +212,7 @@ export function progressLabel(e) {
 export function completionPct(e) {
   if (e.status === 'completed') return 100;
   if (e.status === 'clips' || e.status === 'plan') return null;
+  if (!isScreen(e) && !['book', 'manga', 'podcast'].includes(e.media_type)) return null;
   if (e.media_type === 'movie') return e.movie_progress_pct ?? 0;
   if (!e.total_episodes) return null;
   return Math.min(100, Math.round(((e.episodes_watched || 0) / e.total_episodes) * 100));
@@ -171,6 +225,7 @@ export const DECADES = [2020, 2010, 2000, 1990, 1980, 1970, 1960, 1950];
  * a few episodes is a try-out, a full season or more is a stop, anything between stays dropped.
  */
 export function suggestStatus(e) {
+  if (!isScreen(e)) return null;
   if (e.status !== 'dropped' && e.status !== 'on_hold') return null;
   if (e.media_type === 'movie') return null;
   const eps = e.episodes_watched || 0;

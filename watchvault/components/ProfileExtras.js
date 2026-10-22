@@ -136,3 +136,72 @@ export function FollowButton({ userId }) {
     </button>
   );
 }
+
+/** A shareable one-card summary of someone's taste: what they come for, their shelves and stamps. */
+export function TastePassport({ entries, profile }) {
+  if (!entries?.length) return null;
+  // Imported lazily-style helpers kept local to avoid a heavier bundle on profiles.
+  const vec = tasteVectorLite(entries);
+  const flag = (cc) => (/^[A-Z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc].map((c) => 0x1f1a5 + c.charCodeAt(0))) : '');
+  const countries = [...new Set(entries.filter((e) => e.status !== 'plan' && e.origin_country).map((e) => e.origin_country))].slice(0, 24);
+  const favByShelf = new Map();
+  for (const e of entries) if ((e.favourite || e.rating >= 9) && !favByShelf.has(e.category)) favByShelf.set(e.category, e);
+  return (
+    <section className="passport">
+      <div className="passport-head">
+        <span className="kicker">Taste passport</span>
+        <b className="passport-name">{profile?.display_name || (profile?.username ? `@${profile.username}` : 'You')}</b>
+      </div>
+      {vec.traits.length > 0 && (
+        <p className="passport-line">
+          Comes for <b>{vec.traits.slice(0, 3).join(', ').toLowerCase()}</b>
+        </p>
+      )}
+      <div className="passport-stamps">
+        {vec.shelves.slice(0, 8).map(([label, n, icon]) => (
+          <span key={label} className="stamp">
+            <i>{icon}</i>
+            <b>{n}</b>
+            <span>{label}</span>
+          </span>
+        ))}
+      </div>
+      {favByShelf.size > 0 && (
+        <p className="muted small">
+          Favourites: {[...favByShelf.values()].slice(0, 5).map((e) => e.title).join(' · ')}
+        </p>
+      )}
+      {countries.length > 1 && (
+        <p className="passport-flags" aria-label={`Stories from ${countries.length} countries`}>
+          {countries.map((c) => flag(c)).join(' ')}
+        </p>
+      )}
+    </section>
+  );
+}
+
+const TRAIT_RE = [
+  ['Emotional stories', /drama|romance|slice of life|psychological/i],
+  ['Action', /action|adventure|fighting|shooter|war/i],
+  ['Mysteries', /mystery|thriller|crime|puzzle/i],
+  ['Laughs', /comedy|humou?r/i],
+  ['Fantasy worlds', /fantasy|sci-?fi|science fiction|supernatural/i],
+  ['Scares', /horror/i],
+  ['Real stories', /documentary|history|biography/i],
+];
+const ICONS = { books: '📖', manga: '📚', games: '🎮', music: '🎵', podcasts: '🎙️', food: '☕', places: '📍', events: '🎟️', travel: '🧭', anime: '🌸', movies: '🎬', series: '📺' };
+function tasteVectorLite(entries) {
+  const t = {};
+  const shelves = {};
+  for (const e of entries) {
+    if (e.status === 'plan') continue;
+    shelves[e.category] = (shelves[e.category] || 0) + 1;
+    for (const g of e.genres || []) for (const [label, re] of TRAIT_RE) if (re.test(g)) t[label] = (t[label] || 0) + (e.rating ? e.rating / 5 : 1);
+  }
+  return {
+    traits: Object.entries(t).sort((a, b) => b[1] - a[1]).map(([k]) => k),
+    shelves: Object.entries(shelves)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, n]) => [c === 'movies' ? 'Films' : c === 'series' ? 'Series' : c.charAt(0).toUpperCase() + c.slice(1), n, ICONS[c] || '🎞️']),
+  };
+}
