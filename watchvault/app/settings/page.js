@@ -6,6 +6,7 @@ import { getSupabase } from '@/lib/supabase';
 import { saveProfile, useEntries } from '@/lib/store';
 import { CATEGORIES } from '@/lib/categories';
 import ExportSheet from '@/components/ExportSheet';
+import { NewPassword } from '@/components/AppShell';
 import { HOME_SECTIONS, withDefaults } from '@/components/Vault';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
@@ -211,6 +212,14 @@ export default function SettingsPage() {
               Sign out
             </button>
           </div>
+          <details className="group-row" style={{ display: 'block' }}>
+            <summary style={{ cursor: 'pointer' }}>
+              <b>Change password</b>
+            </summary>
+            <div style={{ paddingTop: 12 }}>
+              <NewPassword sb={getSupabase()} inline />
+            </div>
+          </details>
         </div>
       </section>
 
