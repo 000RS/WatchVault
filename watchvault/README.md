@@ -2,6 +2,17 @@
 
 A personal vault for everything you watch: movies, series, anime and dramas from every country, tracked down to the episode. Share it with friends like a profile.
 
+## What's new in 5.1
+
+No database changes: everything new is stored in the `meta` column added by `upgrade_v5.sql`.
+
+- **Dub or sub.** Anime tiles show a DUB / PART DUB / SUB badge, title sheets say whether an English dub exists, and search has a "Dub or sub" filter. You can also type it: "english dubbed anime", "sub only anime 2023". The dub data comes from the free, community-kept [MAL-Dubs](https://github.com/MAL-Dubs/MAL-Dubs) list (anime only; other titles show "not known").
+- **How you watched it.** Every film, series and anime has Original audio / Subtitled / Dubbed (with the dub language), and films have "Watched it in a cinema". There's a "Saw it in a cinema" quick-add button, a My Vault filter for all of these, and counts on Stats.
+- **Short dramas.** A new shelf for ReelShort, DramaBox, ShortMax, FlexTV and the rest, with the app name on the poster and in the editor. Search "short dramas" or "reelshort …", or add one yourself with its app and episode count.
+- **Export all or part of your list** as Excel, CSV, Word or PDF, from My Vault, Import & export, or Settings. Quick picks (anime, movies, English movies, Hindi series, watchlist, favourites…) or mix your own: types, shelves, statuses, language, country, years, rating. On My Vault, "What's on screen now" exports exactly what your filters show, or just the titles you selected. Made in your browser, so it costs nothing.
+- **Top lists** read better: the name sits to the right of the poster, jump chips take you to each list, and rows can be dragged up and down (the arrows still work).
+- **Auto refresh.** Your vault re-syncs when you come back to the tab, when you're back online and every two minutes, so changes from your phone show up on your laptop by themselves. Explore's picks refresh every day.
+
 ## Upgrading to version 5
 
 Version 5 turns WatchVault into a vault for everything you love, not just what you watch. Still completely free.

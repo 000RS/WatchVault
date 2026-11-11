@@ -879,7 +879,7 @@ a.group-row:hover { background: var(--surface); color: var(--gold-hi); }
 .columns-axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
 .columns-axis span { font-size: .7rem; color: var(--muted); text-align: center; overflow: visible; white-space: nowrap; }
 .rank-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.rank-row, .rank-btn { display: grid; grid-template-columns: 22px auto minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; text-align: left; color: inherit; }
+.rb-row, .rank-btn { display: grid; grid-template-columns: 22px auto minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; text-align: left; color: inherit; }
 .rank-btn { padding: 0; }
 .rank-n { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .rank-img { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; background: var(--surface-2); display: grid; place-items: center; font-weight: 700; color: var(--fg-2); }
@@ -890,7 +890,7 @@ a.group-row:hover { background: var(--surface); color: var(--gold-hi); }
 .rank-value { color: var(--fg-2); font-variant-numeric: tabular-nums; flex: none; }
 .rank-track { height: 6px; border-radius: 999px; background: rgb(241 236 232 / .06); overflow: hidden; }
 .rank-track i { display: block; height: 100%; border-radius: 999px; background: var(--seq-4); }
-.rank-row:hover .rank-track i { background: var(--seq-5); }
+.rb-row:hover .rank-track i { background: var(--seq-5); }
 .rank-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scatter-wrap { max-width: 340px; }
 .scatter { width: 100%; height: auto; overflow: visible; }
@@ -1019,9 +1019,9 @@ a.group-row:hover { background: var(--surface); color: var(--gold-hi); }
 .side-nav { min-height: 0; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; margin-right: -8px; padding-right: 8px; }
 .side-gap ~ .side-link { padding-top: 7px; padding-bottom: 7px; font-size: .93rem; }
 .side-gap { margin: 10px 12px; }
-.rank-row, .rank-btn { grid-template-columns: 22px minmax(0, 1fr); }
-.rank-row.has-img, .rank-btn.has-img { grid-template-columns: 22px 36px minmax(0, 1fr); }
-.rank-row:has(> .rank-btn) { display: block; }
+.rb-row, .rank-btn { grid-template-columns: 22px minmax(0, 1fr); }
+.rb-row.has-img, .rank-btn.has-img { grid-template-columns: 22px 36px minmax(0, 1fr); }
+.rb-row:has(> .rank-btn) { display: block; }
 .rank-btn { background: transparent; border: 0; font: inherit; cursor: pointer; border-radius: 8px; }
 .rank-btn:hover .rank-label b { color: var(--gold-hi); }
 .as-button { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
@@ -1198,3 +1198,35 @@ a.group-row:hover { background: var(--surface); color: var(--gold-hi); }
   .swipe-top .select { flex: 1 1 100%; min-height: 40px; }
   .swipe-stage, .swipe-skeleton { height: clamp(340px, calc(100dvh - 400px), 620px); }
 }
+
+/* ================= v5.1 ================= */
+.top-panel { scroll-margin-top: 20px; }
+.top-panel .rank-row { grid-template-columns: 18px 30px 48px minmax(0, 1fr) auto; gap: 12px; }
+.top-panel .rank-title { font-weight: 600; font-size: .98rem; line-height: 1.3; overflow-wrap: anywhere; }
+.drag-handle { cursor: grab; color: var(--muted); font-size: 1.1rem; touch-action: none; user-select: none; text-align: center; }
+.rank-row.dragging { background: color-mix(in srgb, var(--gold) 14%, transparent); outline: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); }
+@media (max-width: 520px) { .top-panel .rank-row { grid-template-columns: 16px 24px 42px minmax(0, 1fr) auto; gap: 8px; } .top-panel .rank-tools .icon-btn { width: 32px; height: 32px; } }
+/* Dub / sub, cinema, short-drama app */
+.dub-badge { position: absolute; left: 8px; top: 8px; z-index: 2; padding: 2px 7px; border-radius: 6px; font-size: .64rem; font-weight: 700; letter-spacing: .05em; background: rgb(17 17 19 / .82); color: #f4f1ea; border: 1px solid rgb(255 255 255 / .18); pointer-events: none; }
+.dub-badge.dub { color: #9be3b4; border-color: rgb(155 227 180 / .45); }
+.dub-badge.partial { color: #f2d18a; border-color: rgb(242 209 138 / .45); }
+.dub-badge.sub { color: #c9c6ff; border-color: rgb(201 198 255 / .4); }
+.dub-badge.app { top: auto; bottom: 12px; letter-spacing: 0; font-weight: 600; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cinema-badge { position: absolute; top: 8px; left: 8px; z-index: 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: rgb(17 17 19 / .75); font-size: .8rem; }
+.dub-line { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.dub-chip { padding: 2px 8px; border-radius: 999px; font-weight: 600; font-size: .78rem; border: 1px solid var(--line); }
+.dub-chip.dub { color: var(--completed); border-color: color-mix(in srgb, var(--completed) 50%, transparent); }
+.dub-chip.partial { color: var(--gold-hi); border-color: color-mix(in srgb, var(--gold) 50%, transparent); }
+.dub-chip.sub { color: var(--fg); }
+.how-watched { gap: 8px; }
+.how-watched .select.inline { width: auto; min-height: 34px; }
+/* Export */
+.export-formats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.export-format { display: grid; gap: 2px; text-align: left; padding: 12px; border-radius: var(--r-sm); border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+.export-format:hover { border-color: var(--line-strong); }
+.export-format.on { border-color: transparent; background: color-mix(in srgb, var(--gold) 16%, transparent); outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent); }
+.export-fine { padding: 16px; gap: 14px; }
+.export-fine .year-input { width: 110px; flex: none; }
+.export-go { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid var(--line); padding-top: 14px; }
+.export-go .fg { color: var(--fg); }
+@media (max-width: 640px) { .export-formats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .export-go .btn { flex: 1 1 100%; } }

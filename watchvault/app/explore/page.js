@@ -48,7 +48,9 @@ const MEM = 'explore';
 export default function ExplorePage() {
   const mem = viewMemory.get(MEM) || {};
   const [tab, setTab] = useState(mem.tab || 'foryou');
-  const [round, setRound] = useState(mem.round || 0);
+  // A new set of picks every day without pressing Refresh; Refresh still gives a fresh set any time.
+  const today = new Date().toISOString().slice(0, 10);
+  const [round, setRound] = useState(mem.day === today ? mem.round || 0 : Math.floor(Date.now() / 86400000) % 50);
   const [draft, setDraft] = useState(mem.q || '');
   const [q, setQ] = useState(mem.q || '');
   const [sf, setSf] = useState(mem.sf || EMPTY_FILTERS);
@@ -92,7 +94,7 @@ export default function ExplorePage() {
   }
   const searching = q.trim().length > 0 || filtersActive(sf);
   useEffect(() => {
-    viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), tab, round });
+    viewMemory.set(MEM, { ...(viewMemory.get(MEM) || {}), tab, round, day: today });
   }, [tab, round]);
 
   // Scroll position per tab, so coming back from a full page lands where you were.

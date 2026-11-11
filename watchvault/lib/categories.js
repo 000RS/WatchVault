@@ -12,6 +12,7 @@ export const CATEGORIES = [
   { id: 'cdrama', label: 'C-Drama', short: 'C-Drama' },
   { id: 'jdrama', label: 'J-Drama', short: 'J-Drama' },
   { id: 'thai', label: 'Thai drama', short: 'Thai' },
+  { id: 'shortdrama', label: 'Short dramas', short: 'Short drama' },
   { id: 'books', label: 'Books', short: 'Book', kind: 'book' },
   { id: 'manga', label: 'Manga & comics', short: 'Manga', kind: 'manga' },
   { id: 'games', label: 'Games', short: 'Game', kind: 'game' },
@@ -62,13 +63,31 @@ const STATUS_HINTS = {
 const COUNT_WORDS = {
   movies: ['movie', 'movies'], series: ['series', 'series'], anime: ['anime', 'anime'], animation: ['animated title', 'animated titles'], other: ['other title', 'other titles'],
   kdrama: ['K-Drama', 'K-Dramas'], turkish: ['Turkish drama', 'Turkish dramas'], indian: ['Indian title', 'Indian titles'],
-  pakistani: ['Pakistani drama', 'Pakistani dramas'], cdrama: ['C-Drama', 'C-Dramas'], jdrama: ['J-Drama', 'J-Dramas'], thai: ['Thai drama', 'Thai dramas'],
+  pakistani: ['Pakistani drama', 'Pakistani dramas'], cdrama: ['C-Drama', 'C-Dramas'], jdrama: ['J-Drama', 'J-Dramas'], thai: ['Thai drama', 'Thai dramas'], shortdrama: ['short drama', 'short dramas'],
   books: ['book', 'books'], manga: ['manga', 'manga'], games: ['game', 'games'], music: ['album', 'albums'], podcasts: ['podcast', 'podcasts'],
   food: ['food spot', 'food spots'], places: ['place', 'places'], events: ['event', 'events'], travel: ['destination', 'destinations'],
 };
 export function countLabel(c) {
   const w = COUNT_WORDS[c.id] || [c.label, c.label];
   return `${c.count} ${c.count === 1 ? w[0] : w[1]}`;
+}
+
+/** Apps that carry vertical, minute-long dramas. */
+export const SHORT_APPS = ['ReelShort', 'DramaBox', 'ShortMax', 'FlexTV', 'GoodShort', 'MoboReels', 'DramaWave', 'NetShort', 'TopShort', 'Kalos TV', 'MiniShorts', 'YouTube', 'TikTok', 'Instagram', 'Facebook', 'Other'];
+
+/** How you watched it: original audio, subtitles or a dub, and whether it was in a cinema. */
+export const AUDIO = [
+  { id: 'original', label: 'Original audio' },
+  { id: 'sub', label: 'Subtitled' },
+  { id: 'dub', label: 'Dubbed' },
+];
+export const DUB_LANGS = ['English', 'Hindi', 'Urdu', 'Tamil', 'Telugu', 'Malayalam', 'Kannada', 'Bengali', 'Punjabi', 'Spanish', 'Portuguese', 'French', 'German', 'Italian', 'Arabic', 'Turkish', 'Japanese', 'Korean', 'Chinese', 'Indonesian', 'Tagalog', 'Russian', 'Other'];
+/** "Dubbed (Hindi)", "Subtitled", or null when you haven't said. */
+export function audioLabel(e) {
+  const a = e?.meta?.audio;
+  if (!a) return null;
+  const base = AUDIO.find((x) => x.id === a)?.label || a;
+  return a === 'dub' && e.meta.dubLang ? `Dubbed (${e.meta.dubLang})` : base;
 }
 
 export const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]));

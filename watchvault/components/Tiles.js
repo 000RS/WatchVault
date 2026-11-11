@@ -8,7 +8,7 @@ import EntryEditor from './EntryEditor';
 import { Credits, WhereToWatch } from './TitleExtras';
 import { Icon } from './Icons';
 import { ListsField } from './EntryExtras';
-import { CATEGORY_LABEL, CATEGORY_SHORT, completionPct, isScreen, kindInfo, kindOf, progressLabel, statusLabel, statusesFor } from '@/lib/categories';
+import { CATEGORY_LABEL, CATEGORY_SHORT, audioLabel, completionPct, isScreen, kindInfo, kindOf, progressLabel, statusLabel, statusesFor } from '@/lib/categories';
 import { itemByline } from '@/lib/shelves';
 import { ItemLinks } from './ItemLinks';
 import { getTitleFull } from '@/lib/catalog';
@@ -16,10 +16,12 @@ import { addTitle, entryHref, itemHref } from '@/lib/actions';
 import { toast } from '@/lib/toast';
 import { useEntries } from '@/lib/store';
 import { tilt } from './tilt';
+import { DUB_LABEL, useDub } from '@/lib/dubs';
 
 const ADD_OPTIONS = [
   { status: 'completed', label: 'Watched it', primary: true },
   { status: 'completed', label: 'Watched today', hint: 'logs it in your diary', today: true },
+  { status: 'completed', label: 'Saw it in a cinema', hint: 'counts as watched', cinema: true, movieOnly: true },
   { status: 'watching', label: 'Watched half', pct: 50, movieOnly: true },
   { status: 'watching', label: 'Watching now' },
   { status: 'plan', label: 'Plan to watch' },
@@ -50,8 +52,8 @@ export function AddOptions({ item, onAdded }) {
     setBusy(true);
     try {
       const today = new Date().toISOString().slice(0, 10);
-      await addTitle(item, o.status, o.pct != null ? { pct: o.pct } : o.status === 'tried' ? { episodes: 2 } : o.today ? { fields: { watched_from: today, watched_to: today } } : {});
-      toast(`${item.title}: ${o.pct === 50 ? 'half watched' : statusLabel(item, o.status).toLowerCase()}`);
+      await addTitle(item, o.status, o.pct != null ? { pct: o.pct } : o.status === 'tried' ? { episodes: 2 } : o.today ? { fields: { watched_from: today, watched_to: today } } : o.cinema ? { fields: { meta: { ...(item.meta || {}), cinema: true } } } : {});
+      toast(`${item.title}: ${o.pct === 50 ? 'half watched' : o.cinema ? 'seen in a cinema' : statusLabel(item, o.status).toLowerCase()}`);
       onAdded?.();
     } catch {
       /* addTitle already showed the error */
@@ -107,6 +109,8 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
     t?.rating ? `${Number(t.rating).toFixed(1)}${t.source === 'tmdb' ? ' on TMDB' : '/10'}` : null,
   ].filter(Boolean);
   const href = entry ? entryHref(entry) : t ? itemHref(t) : '#';
+  const dub = useDub(t || (entry && { source: entry.source, mediaType: entry.media_type, sourceId: entry.source_id, title: entry.title, originalTitle: entry.original_title, year: entry.year, category: entry.category }));
+  const how = entry && [entry.meta?.app, audioLabel(entry), entry.meta?.cinema ? 'Seen in a cinema' : null].filter(Boolean);
 
   return (
     <Sheet open={open} onClose={onClose} title={name} wide className="detail">
@@ -121,6 +125,13 @@ export function DetailSheet({ item, entry: given, open, onClose }) {
           <h3 className="detail-title">{name}</h3>
           <p className="muted small">{facts.join('  ·  ')}</p>
           {t?.genres?.length > 0 && <p className="muted small">{t.genres.slice(0, 4).join(', ')}</p>}
+          {dub !== undefined && (
+            <p className="small dub-line">
+              {dub ? <span className={`dub-chip ${dub}`}>{dub === 'dub' ? 'English dub available' : dub === 'partial' ? 'English dub: some episodes' : 'Sub only, no English dub'}</span> : <span className="muted">English dub: not known</span>}
+              <span className="muted"> · from the MAL-Dubs list</span>
+            </p>
+          )}
+          {how?.length > 0 && <p className="muted small">You: {how.join(' · ')}</p>}
           {screen ? (
             <Link href={href} className="link small" onClick={onClose}>
               Open full page
@@ -176,6 +187,7 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
   const { lookup } = useEntries();
   const entry = lookup(item);
   const [open, setOpen] = useState(false);
+  const dub = useDub(item);
 
   async function quickAdd() {
     try {
@@ -191,6 +203,7 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
       <button className="tile-link as-button" onClick={() => setOpen(true)} aria-label={`${item.title}, details`} {...tilt}>
         <Poster src={item.poster} title={item.title} size={size} icon={!isScreen(item) ? kindInfo(item).icon : null}>
           {entry && <span className={`tile-badge st-${entry.status}`}>{statusLabel(entry)}</span>}
+          {dub && <DubBadge dub={dub} />}
         </Poster>
       </button>
       <div className="tile-actions">
@@ -212,7 +225,7 @@ export function TitleTile({ item, size = 'md', showMeta = true }) {
           <button className="tile-title as-text" onClick={() => setOpen(true)}>
             {item.title}
           </button>
-          <span className="tile-sub">{isScreen(item) ? [item.year, CATEGORY_SHORT[item.category]].filter(Boolean).join(', ') : itemByline(item) || CATEGORY_SHORT[item.category]}</span>
+          <span className="tile-sub">{isScreen(item) ? [item.year, item.meta?.app || CATEGORY_SHORT[item.category]].filter(Boolean).join(', ') : itemByline(item) || CATEGORY_SHORT[item.category]}</span>
         </div>
       )}
       {open && <DetailSheet item={item} open={open} onClose={() => setOpen(false)} />}
@@ -227,6 +240,8 @@ export function EntryTile({ entry, selecting = false, selected = false, onToggle
   const body = (
     <Poster src={entry.poster_url} title={entry.title} icon={!isScreen(entry) ? kindInfo(entry).icon : null}>
       {entry.favourite && <span className="fav-badge" aria-label="Favourite">♥</span>}
+      {entry.meta?.cinema && <span className="cinema-badge" title="Seen in a cinema" aria-label="Seen in a cinema">🍿</span>}
+      {entry.category === 'shortdrama' && entry.meta?.app && <span className="dub-badge app">{entry.meta.app}</span>}
       {selecting && <span className={`select-dot ${selected ? 'on' : ''}`}>{selected && <Icon.Check width={14} height={14} />}</span>}
       {pct != null && pct > 0 && pct < 100 && (
         <span className="progress-line" aria-hidden="true">
@@ -273,6 +288,15 @@ export function EntryTile({ entry, selecting = false, selected = false, onToggle
       </div>
       {open && <DetailSheet entry={entry} open={open} onClose={() => setOpen(false)} />}
     </div>
+  );
+}
+
+/** DUB / PART DUB / SUB in the poster corner, for anime. */
+export function DubBadge({ dub }) {
+  return (
+    <span className={`dub-badge ${dub}`} title={DUB_LABEL[dub]} aria-label={DUB_LABEL[dub]}>
+      {dub === 'dub' ? 'DUB' : dub === 'partial' ? 'PART DUB' : 'SUB'}
+    </span>
   );
 }
 

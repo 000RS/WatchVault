@@ -8,6 +8,7 @@ import { askGuide, useAiEnabled } from './Ask';
 import { viewMemory } from '@/lib/store';
 import { SHELF_KINDS, searchAll, searchShelf, shelfKind, trendingShelf } from '@/lib/shelves';
 import CustomAdd from './CustomAdd';
+import { dubOf, isAnime, whenDubsReady } from '@/lib/dubs';
 
 export const COUNTRIES = [
   ['US', 'United States'], ['GB', 'United Kingdom'], ['IN', 'India'], ['PK', 'Pakistan'], ['KR', 'South Korea'], ['JP', 'Japan'], ['CN', 'China'],
@@ -21,13 +22,26 @@ const TYPES = [
   { id: 'movie', label: 'Movies' },
   { id: 'tv', label: 'Series & dramas' },
   { id: 'anime', label: 'Anime' },
+  { id: 'shortdrama', label: 'Short dramas' },
   ...SHELF_KINDS.map((k) => ({ id: k.id, label: k.label })),
 ];
 const isShelf = (type) => Boolean(shelfKind(type));
+const isPlain = (type) => isShelf(type) || type === 'shortdrama';
 
-export const EMPTY_FILTERS = { type: 'all', language: '', country: '', year: '', genre: '' };
-export const filtersActive = (f) => Boolean(f.language || f.country || f.year || f.genre || f.type !== 'all');
-export const searchHint = (f) => shelfKind(f.type)?.placeholder;
+export const EMPTY_FILTERS = { type: 'all', language: '', country: '', year: '', genre: '', dub: '' };
+export const filtersActive = (f) => Boolean(f.language || f.country || f.year || f.genre || f.dub || f.type !== 'all');
+export const searchHint = (f) => (f.type === 'shortdrama' ? 'A short drama, or the app it’s on' : shelfKind(f.type)?.placeholder);
+const DUB_FILTERS = [
+  ['', 'Dub or sub'],
+  ['dub', 'English dub'],
+  ['sub', 'Sub only'],
+];
+/** Keep anime that match the dub filter (the dub list only covers anime). */
+async function applyDub(items, dub) {
+  if (!dub) return items;
+  await whenDubsReady(items);
+  return items.filter((i) => isAnime(i) && (dub === 'dub' ? ['dub', 'partial'].includes(dubOf(i)) : dubOf(i) === 'sub'));
+}
 
 /** The filter row that sits under the search bar, always visible. */
 export function SearchFilters({ f, onChange }) {
@@ -42,7 +56,7 @@ export function SearchFilters({ f, onChange }) {
           </button>
         ))}
       </div>
-      {!isShelf(f.type) && <div className="toolbar">
+      {!isPlain(f.type) && <div className="toolbar">
         <select id="s-language" className="select" value={f.language} onChange={set('language')} aria-label="Language">
           <option value="">Any language</option>
           {LANGUAGES.map(([c, n]) => (
@@ -67,6 +81,15 @@ export function SearchFilters({ f, onChange }) {
             </option>
           ))}
         </select>
+        {['all', 'anime'].includes(f.type) && (
+          <select id="s-dub" className="select" value={f.dub || ''} onChange={set('dub')} aria-label="English dub">
+            {DUB_FILTERS.map(([v, n]) => (
+              <option key={v} value={v}>
+                {n}
+              </option>
+            ))}
+          </select>
+        )}
         <select id="s-genre" className="select" value={f.genre} onChange={set('genre')} aria-label="Genre">
           <option value="">Any genre</option>
           {SEARCH_GENRES.map((g) => (
@@ -81,9 +104,9 @@ export function SearchFilters({ f, onChange }) {
           </button>
         )}
       </div>}
-      {isShelf(f.type) && (
+      {isPlain(f.type) && (
         <div className="row small">
-          <span className="muted">{['place', 'food', 'travel'].includes(f.type) ? 'Type a name or area. Results near you come first.' : 'Popular right now, or type to search.'}</span>
+          <span className="muted">{f.type === 'shortdrama' ? 'Search, or add one yourself with the app it’s on.' : ['place', 'food', 'travel'].includes(f.type) ? 'Type a name or area. Results near you come first.' : 'Popular right now, or type to search.'}</span>
           <button type="button" className="btn sm ghost" onClick={() => onChange(EMPTY_FILTERS)}>
             Back to everything
           </button>
@@ -106,7 +129,7 @@ export default function SearchResults({ q, f, onPick }) {
   const ai = useAiEnabled();
   const req = useRef(0);
   const term = q.trim();
-  const key = `search:${term}|${f.type}|${f.year}|${f.language}|${f.country}|${f.genre}`;
+  const key = `search:${term}|${f.type}|${f.year}|${f.language}|${f.country}|${f.genre}|${f.dub || ''}`;
 
   useEffect(() => {
     const id = ++req.current;
@@ -123,10 +146,17 @@ export default function SearchResults({ q, f, onPick }) {
     (async () => {
       try {
         let r;
-        if (isShelf(f.type)) {
+        if (f.type === 'shortdrama') {
+          const found = term ? (await searchEverything(term, { type: 'tv' })).items.filter((i) => i.mediaType === 'tv') : [];
+          r = {
+            items: found.map((i) => ({ ...i, category: 'shortdrama' })),
+            people: [],
+            note: 'Apps like ReelShort, DramaBox and ShortMax keep most of their dramas off film databases. If yours isn’t here, add it yourself and pick the app.',
+          };
+        } else if (isShelf(f.type)) {
           const d = term ? await searchShelf(f.type, term) : await trendingShelf(f.type);
           r = { items: d.items, people: [], note: d.note };
-        } else if (term && f.type === 'all' && !f.language && !f.country && !f.year && !f.genre) {
+        } else if (term && f.type === 'all' && !f.language && !f.country && !f.year && !f.genre && !f.dub) {
           const all = await searchAll(term);
           r = { ...all.screen, shelves: all.shelves };
         } else if (term) {
@@ -136,6 +166,7 @@ export default function SearchResults({ q, f, onPick }) {
           const d = await discoverTitles({ ...f, page: 1 });
           r = { items: d.items, people: [], more: d.more };
         }
+        if (f.dub && !isShelf(f.type)) r = { ...r, people: [], items: await applyDub(r.items, f.dub), note: 'English dub info covers anime only, from the community-kept MAL-Dubs list.' };
         if (id !== req.current) return;
         viewMemory.set(key, r);
         setRes(r);
@@ -157,6 +188,7 @@ export default function SearchResults({ q, f, onPick }) {
     setBusy(true);
     try {
       const d = await discoverTitles({ ...f, page: page + 1 });
+      d.items = await applyDub(d.items, f.dub);
       const next = { ...res, items: [...res.items, ...d.items.filter((i) => !res.items.some((x) => x.sourceId === i.sourceId && x.mediaType === i.mediaType))], more: d.more };
       viewMemory.set(key, next);
       setRes(next);
@@ -244,7 +276,9 @@ export default function SearchResults({ q, f, onPick }) {
           </section>
         ))}
 
-      {res && !busy && (term || isShelf(f.type)) && <CustomAdd defaultTitle={term} defaultKind={isShelf(f.type) ? f.type : 'custom'} />}
+      {res && !busy && (term || isShelf(f.type) || f.type === 'shortdrama') && (
+        <CustomAdd defaultTitle={term} defaultKind={isShelf(f.type) || f.type === 'shortdrama' ? f.type : 'custom'} label={f.type === 'shortdrama' ? 'Add a short drama with its app' : undefined} />
+      )}
     </>
   );
 }

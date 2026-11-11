@@ -635,7 +635,11 @@ const SHELF_WORDS = {
   cafe: 'food', cafes: 'food', café: 'food', cafés: 'food', restaurant: 'food', restaurants: 'food', bar: 'food', bars: 'food', brunch: 'food', coffee: 'food',
   concert: 'event', concerts: 'event', gig: 'event', gigs: 'event', festival: 'event', festivals: 'event',
 };
+const SHORT_DRAMA_RE = /\b(short|mini|vertical|micro)\s*dramas?\b|\b(reelshort|dramabox|shortmax|flextv|goodshort|moboreels|dramawave|netshort|topshort)\b/i;
+const DUB_WORDS = { dub: 'dub', dubs: 'dub', dubbed: 'dub', sub: 'sub', subs: 'sub', subbed: 'sub', subtitled: 'sub' };
 export function readFilterWords(text) {
+  // "short dramas", "reelshort romance": the short-drama shelf.
+  if (SHORT_DRAMA_RE.test(text || '')) return { type: 'shortdrama', q: String(text).replace(SHORT_DRAMA_RE, ' ').replace(/\s+/g, ' ').trim() };
   const words = String(text || '').toLowerCase().replace(/[-–]/g, ' ').split(/\s+/).filter(Boolean);
   if (!words.length) return null;
   // "fantasy books", "punjabi songs", "cafes in ponsonby": a shelf plus what to look for.
@@ -653,7 +657,9 @@ export function readFilterWords(text) {
   const rest = [];
   for (const w of words) {
     const clean = w.replace(/[^a-z0-9]/g, '');
-    if (/^(19|20)\d\d$/.test(clean)) found.year = clean;
+    if (DUB_WORDS[clean]) found.dub = DUB_WORDS[clean];
+    else if (clean === 'only' && found.dub) continue;
+    else if (/^(19|20)\d\d$/.test(clean)) found.year = clean;
     else if (TYPE_WORDS[clean]) found.type = TYPE_WORDS[clean];
     else if (LANG_WORDS[clean]) {
       found.language = LANG_WORDS[clean];
@@ -663,7 +669,13 @@ export function readFilterWords(text) {
   }
   const genre = GENRE_NAMES.find((g) => g.toLowerCase() === rest.join(' ') || (rest.join(' ') === 'scifi' && g === 'Science Fiction'));
   if (rest.length && !genre) return null;
-  if (!found.type && !found.language && !found.year && !genre) return null;
+  if (!found.type && !found.language && !found.year && !genre && !found.dub) return null;
+  // "english dubbed anime": the dub list is about anime, and "english" names the dub, not the original language.
+  if (found.dub) {
+    delete found.language;
+    delete found.country;
+    if (!found.type || found.type === 'tv') found.type = 'anime';
+  }
   // "Indian" and "Pakistani" mean the country more than one language.
   if (found.country === 'IN' && /indian/.test(words.join(' '))) delete found.language;
   if (found.country === 'PK' && /pakistani/.test(words.join(' '))) delete found.language;

@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getSupabase, supabaseUrl } from '@/lib/supabase';
-import { clearStore, initStore, useProfile } from '@/lib/store';
+import { clearStore, initStore, useProfile, startAutoSync } from '@/lib/store';
 import { Icon } from './Icons';
 import Toaster from './Toaster';
 
@@ -89,7 +89,10 @@ export default function AppShell({ children }) {
   }, []);
 
   useEffect(() => {
-    if (session?.user?.id) initStore(session.user.id);
+    if (session?.user?.id) {
+      initStore(session.user.id);
+      startAutoSync();
+    }
     if (session === null) clearStore();
   }, [session]);
 

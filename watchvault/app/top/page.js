@@ -18,6 +18,7 @@ export default function TopPage() {
   const { entries, profile } = useEntries();
   const [lists, setLists] = useState(null);
   const [picking, setPicking] = useState(null);
+  const [drag, setDrag] = useState(null); // { key, from, to }
 
   useEffect(() => {
     if (user) fetchTopLists(user.id).then(setLists).catch((e) => (toast(e.message, { kind: 'error' }), setLists({})));
@@ -50,13 +51,22 @@ export default function TopPage() {
           <p className="lede">Your overall top {MAX} leads your vault and your profile. Each shelf gets its own ranking too.</p>
         </div>
       </header>
-      <p className="muted small">Your profile shows the top {profile?.showcase_size || 5} of each list. Change that in Settings.</p>
+      <p className="muted small">Your profile shows the top {profile?.showcase_size || 5} of each list. Drag ⠿ or use the arrows to reorder. Change how many show in Settings.</p>
+      {keys.length > 2 && (
+        <nav className="chips" aria-label="Jump to a list">
+          {keys.map((k) => (
+            <button key={k} className="chip" onClick={() => document.getElementById(`top-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+              {k === 'overall' ? 'Overall' : CATEGORY_LABEL[k]}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div className="top-grid">
         {keys.map((key) => {
           const ids = (lists[key] || []).filter((id) => byId.has(id));
           return (
-            <section key={key} className="panel">
+            <section key={key} id={`top-${key}`} className="panel top-panel">
               <div className="spread">
                 <h2 className="h-sub">{key === 'overall' ? 'Overall' : CATEGORY_LABEL[key]}</h2>
                 {ids.length < MAX && (
@@ -69,7 +79,7 @@ export default function TopPage() {
                 <p className="muted small">Nothing ranked yet.</p>
               ) : (
                 <ol className="ranked">
-                  {ids.map((id, i) => {
+                  {(drag?.key === key ? reorder(ids, drag.from, drag.to) : ids).map((id, i) => {
                     const e = byId.get(id);
                     const move = (d) => {
                       const next = [...ids];
@@ -77,7 +87,28 @@ export default function TopPage() {
                       update(key, next);
                     };
                     return (
-                      <li key={id} className="rank-row">
+                      <li key={id} className={`rank-row ${drag?.key === key && reorder(ids, drag.from, drag.to)[drag.to] === id ? 'dragging' : ''}`} data-idx={i} data-list={key}>
+                        <span
+                          className="drag-handle"
+                          aria-hidden="true"
+                          onPointerDown={(ev) => {
+                            ev.preventDefault();
+                            ev.currentTarget.setPointerCapture(ev.pointerId);
+                            setDrag({ key, from: i, to: i });
+                          }}
+                          onPointerMove={(ev) => {
+                            if (!drag || drag.key !== key) return;
+                            const li = document.elementsFromPoint(ev.clientX, ev.clientY).find((n) => n.dataset?.list === key && n.dataset.idx != null);
+                            if (li && Number(li.dataset.idx) !== drag.to) setDrag({ ...drag, to: Number(li.dataset.idx) });
+                          }}
+                          onPointerUp={() => {
+                            if (drag && drag.key === key && drag.from !== drag.to) update(key, reorder(ids, drag.from, drag.to));
+                            setDrag(null);
+                          }}
+                          onPointerCancel={() => setDrag(null)}
+                        >
+                          ⠿
+                        </span>
                         <span className="rank-num">{i + 1}</span>
                         <Poster src={e.poster_url} title={e.title} />
                         <span className="rank-title">{e.title}</span>
@@ -115,6 +146,13 @@ export default function TopPage() {
       />
     </>
   );
+}
+
+function reorder(list, from, to) {
+  const next = [...list];
+  const [x] = next.splice(from, 1);
+  next.splice(to, 0, x);
+  return next;
 }
 
 function Picker({ listKey, entries, taken, onClose, onPick }) {

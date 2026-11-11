@@ -156,7 +156,7 @@ function RankRow({ r, i, pct, format, onPick }) {
     </>
   );
   return (
-    <li className={`rank-row ${r.img !== undefined ? 'has-img' : ''}`} {...tip}>
+    <li className={`rb-row ${r.img !== undefined ? 'has-img' : ''}`} {...tip}>
       {onPick ? (
         <button className={`as-button rank-btn ${r.img !== undefined ? 'has-img' : ''}`} onClick={() => onPick(r)}>
           {body}

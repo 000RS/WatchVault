@@ -189,6 +189,10 @@ function Overview({ s, watched, entries, rates, yearS }) {
   })();
   const langs = new Set(watched.map((e) => e.original_language).filter(Boolean));
   const rewatches = watched.reduce((a, e) => a + (e.rewatch_count || 0), 0);
+  const cinema = entries.filter((e) => e.meta?.cinema).length;
+  const dubbed = watched.filter((e) => e.meta?.audio === 'dub').length;
+  const subbed = watched.filter((e) => e.meta?.audio === 'sub').length;
+  const shorts = entries.filter((e) => e.category === 'shortdrama' && e.status !== 'plan').length;
   const statusRows = STATUSES.map((x) => ({ key: x.id, label: x.label, value: s.status[x.id] || 0 })).filter((r) => r.value);
   const shelfRows = [...s.byCategory].sort((a, b) => b.count - a.count).map((c) => ({ key: c.id, label: c.label, value: c.count, tip: `${c.count} titles · ${Math.round((c.count / s.watchedCount) * 100)}%` }));
 
@@ -204,6 +208,9 @@ function Overview({ s, watched, entries, rates, yearS }) {
         <Kpi value={langs.size} label="Languages" />
         <Kpi value={s.avgRating != null ? s.avgRating.toFixed(1) : '–'} label="Average rating" sub={s.ratedCount ? `${s.ratedCount} rated` : 'Rate titles to see this'} />
         {rewatches > 0 && <Kpi value={rewatches} label="Rewatches" />}
+        {cinema > 0 && <Kpi value={`🍿 ${cinema}`} label="Seen in a cinema" />}
+        {dubbed + subbed > 0 && <Kpi value={`${dubbed} / ${subbed}`} label="Dubbed / subtitled" sub="from what you marked" />}
+        {shorts > 0 && <Kpi value={shorts} label="Short dramas" />}
       </div>
 
       <section className="panel persona">

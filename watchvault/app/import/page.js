@@ -8,6 +8,7 @@ import { CATEGORY_SHORT, STATUSES, STATUS_LABEL } from '@/lib/categories';
 import { keyOfTitle, progressFor, snapshotFromTitle } from '@/lib/list';
 import { saveEntries, useEntries } from '@/lib/store';
 import Poster from '@/components/Poster';
+import ExportSheet from '@/components/ExportSheet';
 import { toast } from '@/lib/toast';
 
 const KINDS = [
@@ -21,7 +22,8 @@ const MAYBE = 0.55;
 const CHUNK = 40;
 
 export default function ImportPage() {
-  const { lookup } = useEntries();
+  const { lookup, entries } = useEntries();
+  const [exporting, setExporting] = useState(false);
   const [stage, setStage] = useState('input');
   const [text, setText] = useState('');
   const [files, setFiles] = useState([]);
@@ -325,9 +327,15 @@ export default function ImportPage() {
     <>
       <header className="page-head">
         <div className="head-text">
-          <h1 className="h-page">Import</h1>
+          <h1 className="h-page">Import &amp; export</h1>
           <p className="lede">Bring in any list you keep. Titles are matched in seconds, typos included, and you check everything before it is added.</p>
         </div>
+        {entries?.length > 0 && (
+          <button className="btn" onClick={() => setExporting(true)}>
+            Export my list
+          </button>
+        )}
+        {exporting && <ExportSheet open entries={entries} onClose={() => setExporting(false)} />}
       </header>
 
       {error && <p className="notice error">{error}</p>}
