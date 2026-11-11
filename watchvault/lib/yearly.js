@@ -4,7 +4,7 @@
 // Powers Goals, the Diary heatmap, Stats over time and Wrapped.
 
 import { diary } from './social4';
-import { languageName } from './categories';
+import { isScreen, languageName } from './categories';
 
 const cache = new Map();
 /** Diary rows for one year (cached for the session). Empty when the v4 upgrade hasn't run. */
@@ -43,8 +43,18 @@ export function yearSummary(entries, rows, year) {
   let episodes = 0;
   let rewatches = 0;
   const finished = new Set();
+  const beyond = new Map(); // category → Set of entry ids (books read, places visited…)
+  const beyondDays = new Map();
   for (const r of events) {
     const e = r.entry;
+    if (!isScreen(e || r)) {
+      const cat = e?.category || r.category || 'other';
+      if (!beyond.has(cat)) beyond.set(cat, new Set());
+      beyond.get(cat).add(r.entry_id || r.id);
+      const d = dayKey(r.watched_on);
+      beyondDays.set(d, (beyondDays.get(d) || 0) + 1);
+      continue;
+    }
     const rt = r.runtime || runtimeOf(e || r);
     let m = 0;
     if (r.kind === 'episode') {
@@ -99,6 +109,7 @@ export function yearSummary(entries, rows, year) {
   }
 
   const bingeDay = [...days.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+  for (const [d, n] of beyondDays) if (!days.has(d)) days.set(d, n * 30); // a visit or a finished book still makes it an active day
   const titles = [...titleMinutes.entries()]
     .map(([id, m]) => ({ entry: byId.get(id), minutes: m }))
     .filter((x) => x.entry)
@@ -153,6 +164,7 @@ export function yearSummary(entries, rows, year) {
     directors: people('d'),
     studios: people('s'),
     weekday: dow,
+    beyond: [...beyond.entries()].map(([category, ids]) => ({ category, count: ids.size })).sort((a, b) => b.count - a.count),
     first: [...events].sort((a, b) => dayKey(a.watched_on).localeCompare(dayKey(b.watched_on)))[0] || null,
   };
 }

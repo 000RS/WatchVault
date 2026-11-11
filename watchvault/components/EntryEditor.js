@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CATEGORIES, STATUSES, STATUS_LABEL, episodesUpTo, seasonsFinished, suggestStatus } from '@/lib/categories';
+import { AUDIO, CATEGORIES, DUB_LANGS, SHORT_APPS, STATUS_LABEL, episodesUpTo, isScreen, kindInfo, kindOf, seasonsFinished, statusesFor, suggestStatus } from '@/lib/categories';
 import { progressFor } from '@/lib/list';
 import { removeEntries, updateEntry } from '@/lib/store';
 import { fillDetails } from '@/lib/actions';
@@ -47,8 +47,12 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
   }, [entry.id]);
 
   const counts = entry.season_episode_counts || [];
+  const screen = isScreen(entry);
+  const kind = kindInfo(entry);
+  const statuses = statusesFor(entry);
   const isMovie = entry.media_type === 'movie';
-  const hasSeasons = !isMovie && counts.length > 0;
+  const hasSeasons = screen && !isMovie && counts.length > 0;
+  const UNIT_LABEL = { book: 'Pages read', manga: 'Chapters read', podcast: 'Episodes heard', game: 'Hours played', place: 'Visits' };
   const total = entry.total_episodes ?? (counts.length ? counts.reduce((a, b) => a + b, 0) : null);
   const finished = useMemo(() => seasonsFinished(entry), [entry]);
 
@@ -92,13 +96,13 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
       <div className="field-block">
         <span className="field-label">Status</span>
         <div className="seg" role="radiogroup" aria-label="Status">
-          {STATUSES.map((s) => (
+          {statuses.map((s) => (
             <button key={s.id} role="radio" aria-checked={entry.status === s.id} className={`seg-btn st-${s.id} ${entry.status === s.id ? 'on' : ''}`} onClick={() => setStatus(s.id)}>
               {s.label}
             </button>
           ))}
         </div>
-        <p className="hint">{STATUSES.find((x) => x.id === entry.status)?.hint}</p>
+        {screen && <p className="hint">{statuses.find((x) => x.id === entry.status)?.hint}</p>}
         {suggestStatus(entry) && (
           <p className="hint">
             {suggestStatus(entry) === 'tried' ? 'Only a few episodes in.' : 'You got through a full season or more.'}{' '}
@@ -166,7 +170,17 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
         )
       )}
 
-      {!isMovie && !hasSeasons && (
+      {!screen && UNIT_LABEL[kindOf(entry)] && (
+        <div className="field-block">
+          <span className="field-label">{UNIT_LABEL[kindOf(entry)]}</span>
+          <div className="stepper-row">
+            <Stepper value={entry.episodes_watched || 0} max={entry.total_episodes || undefined} onChange={(n) => save({ episodes_watched: n, ...(entry.status === 'plan' && n > 0 ? { status: kindOf(entry) === 'place' ? 'completed' : 'watching' } : {}), ...(entry.total_episodes && n >= entry.total_episodes && entry.status === 'watching' ? { status: 'completed' } : {}) })} label={kind.unit || 'count'} wide />
+            <span className="muted">{entry.total_episodes ? `of ${entry.total_episodes}` : ''}</span>
+          </div>
+        </div>
+      )}
+
+      {screen && !isMovie && !hasSeasons && (
         <div className="field-block">
           <span className="field-label">Episodes watched</span>
           <div className="stepper-row">
@@ -187,12 +201,20 @@ export default function EntryEditor({ entry, compact = false, onRemoved }) {
         </div>
       </div>
 
-      {['completed', 'watching', 'on_hold', 'stopped'].includes(entry.status) && <RewatchField entry={entry} />}
+      <label className="row small fav-row">
+        <span className="toggle">
+          <input type="checkbox" checked={Boolean(entry.favourite)} onChange={(e) => save({ favourite: e.target.checked })} aria-label="Favourite" />
+          <span />
+        </span>
+        ♥ One of my favourites
+      </label>
+      {screen && <HowWatched entry={entry} save={save} />}
+      {screen && ['completed', 'watching', 'on_hold', 'stopped'].includes(entry.status) && <RewatchField entry={entry} />}
       {entry.status !== 'plan' && <ReviewField entry={entry} />}
       <TagsField entry={entry} />
 
       <div className="field-block">
-        <span className="field-label">When did you watch it?</span>
+        <span className="field-label">{screen ? 'When did you watch it?' : kindOf(entry) === 'place' || kindOf(entry) === 'travel' || kindOf(entry) === 'event' ? 'When did you go?' : 'When?'}</span>
         <div className="chips">
           {[
             ['today', 'Today'],
@@ -324,6 +346,63 @@ function Stepper({ value, max, onChange, onStep, label, prefix = '', wide }) {
       <button onClick={() => step(1)} disabled={max != null && value >= max && !onStep} aria-label={`One more ${label}`}>
         <Icon.Plus width={16} height={16} />
       </button>
+    </div>
+  );
+}
+
+/** Original audio, subtitles or a dub (and which language), seen in a cinema, and for short dramas the app. */
+function HowWatched({ entry, save }) {
+  const m = entry.meta || {};
+  const setMeta = (patch) => {
+    const next = { ...m, ...patch };
+    for (const k of Object.keys(next)) if (next[k] == null || next[k] === '') delete next[k];
+    save({ meta: next });
+  };
+  const started = entry.status !== 'plan';
+  const short = entry.category === 'shortdrama';
+  const isMovie = entry.media_type === 'movie';
+  return (
+    <div className="field-block how-watched">
+      {short && (
+        <label className="field">
+          <span className="field-label">App</span>
+          <select id={`app-${entry.id}`} className="select" value={m.app || ''} onChange={(e) => setMeta({ app: e.target.value || null })}>
+            <option value="">Which app?</option>
+            {SHORT_APPS.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <span className="field-label">{started ? 'How did you watch it?' : 'How do you want to watch it?'}</span>
+      <div className="chips wrap" role="radiogroup" aria-label="Audio">
+        {AUDIO.map((a) => (
+          <button key={a.id} type="button" role="radio" aria-checked={m.audio === a.id} className={`chip ${m.audio === a.id ? 'on' : ''}`} onClick={() => setMeta({ audio: m.audio === a.id ? null : a.id, ...(a.id !== 'dub' ? { dubLang: null } : {}) })}>
+            {a.label}
+          </button>
+        ))}
+        {m.audio === 'dub' && (
+          <select id={`dub-${entry.id}`} className="select inline" value={m.dubLang || ''} onChange={(e) => setMeta({ dubLang: e.target.value || null })} aria-label="Dub language">
+            <option value="">Which language?</option>
+            {DUB_LANGS.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {isMovie && started && (
+        <label className="row small fav-row">
+          <span className="toggle">
+            <input type="checkbox" checked={Boolean(m.cinema)} onChange={(e) => setMeta({ cinema: e.target.checked || null })} aria-label="Watched in a cinema" />
+            <span />
+          </span>
+          🍿 Watched it in a cinema
+        </label>
+      )}
     </div>
   );
 }

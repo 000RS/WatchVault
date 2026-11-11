@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getSupabase, supabaseUrl } from '@/lib/supabase';
-import { clearStore, initStore, useProfile } from '@/lib/store';
+import { clearStore, initStore, useProfile, startAutoSync } from '@/lib/store';
 import { Icon } from './Icons';
 import Toaster from './Toaster';
 
@@ -43,18 +43,26 @@ export const useAuth = () => useContext(AuthContext);
 
 const PRIMARY = [
   { href: '/', label: 'Home', icon: Icon.Home },
-  { href: '/list', label: 'My List', icon: Icon.List },
+  { href: '/list', label: 'My Vault', icon: Icon.List },
   { href: '/explore', label: 'Explore', icon: Icon.Compass },
-  { href: '/stats', label: 'Stats', icon: Icon.Chart },
+  { href: '/swipe', label: 'Swipe', icon: Icon.Flame },
+  { href: '/tonight', label: 'Tonight', icon: Icon.Moon, desktopOnly: true },
+  { href: '/stats', label: 'Stats', icon: Icon.Chart, desktopOnly: true },
 ];
 const SECONDARY = [
+  { href: '/tonight', label: 'Tonight', icon: Icon.Moon, mobileOnly: true },
+  { href: '/stats', label: 'Stats', icon: Icon.Chart, mobileOnly: true },
+  { href: '/discover', label: 'Discover', icon: Icon.Wand },
+  { href: '/taste', label: 'Taste', icon: Icon.Dna },
+  { href: '/together', label: 'Together', icon: Icon.Blend },
+  { href: '/trips', label: 'Screen trips', icon: Icon.Map },
+  { href: '/memories', label: 'Memories', icon: Icon.Gallery },
   { href: '/wrapped', label: 'Wrapped', icon: Icon.Spark },
   { href: '/diary', label: 'Diary', icon: Icon.Book },
   { href: '/calendar', label: 'Calendar', icon: Icon.Calendar },
   { href: '/lists', label: 'Lists', icon: Icon.Stack },
   { href: '/top', label: 'Top lists', icon: Icon.Trophy },
   { href: '/friends', label: 'Friends', icon: Icon.Users },
-  { href: '/blends', label: 'Blends', icon: Icon.Blend },
   { href: '/activity', label: 'History', icon: Icon.Clock },
   { href: '/import', label: 'Import & export', icon: Icon.Upload },
   { href: '/settings', label: 'Settings', icon: Icon.Settings },
@@ -68,11 +76,16 @@ export default function AppShell({ children }) {
   const path = usePathname();
   const isPublic = path.startsWith('/u/');
   const [session, setSession] = useState(undefined);
+  // Arrived from a "reset your password" email: ask for the new password before anything else.
+  const [recovery, setRecovery] = useState(() => typeof window !== 'undefined' && /type=recovery|[?&]reset=1/.test(window.location.hash + window.location.search));
 
   useEffect(() => {
     if (!sb) return;
     sb.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data } = sb.auth.onAuthStateChange((e, s) => {
+      if (e === 'PASSWORD_RECOVERY') setRecovery(true);
+      setSession(s);
+    });
     return () => data.subscription.unsubscribe();
   }, [sb]);
 
@@ -81,7 +94,10 @@ export default function AppShell({ children }) {
   }, []);
 
   useEffect(() => {
-    if (session?.user?.id) initStore(session.user.id);
+    if (session?.user?.id) {
+      initStore(session.user.id);
+      startAutoSync();
+    }
     if (session === null) clearStore();
   }, [session]);
 
@@ -121,6 +137,14 @@ export default function AppShell({ children }) {
   }
 
   if (session === undefined) return <div className="boot" aria-label="Loading" />;
+  if (session && recovery)
+    return (
+      <>
+        <Ambient />
+        <NewPassword sb={sb} onDone={() => (setRecovery(false), window.history.replaceState(null, '', '/'))} />
+        <Toaster />
+      </>
+    );
   if (!session)
     return (
       <>
@@ -160,7 +184,7 @@ function Frame({ children }) {
             </Link>
           ))}
           <div className="side-gap" />
-          {links.map((l) => (
+          {links.filter((l) => !l.mobileOnly).map((l) => (
             <Link key={l.href} href={l.href} className={`side-link ${active(l.href) ? 'on' : ''}`}>
               <l.icon />
               <span>{l.label}</span>
@@ -182,7 +206,7 @@ function Frame({ children }) {
       </main>
 
       <nav className="tabbar" aria-label="Main">
-        {PRIMARY.map((l) => (
+        {PRIMARY.filter((l) => !l.desktopOnly).map((l) => (
           <Link key={l.href} href={l.href} className={`tab ${active(l.href) ? 'on' : ''}`}>
             <l.icon />
             <span>{l.label}</span>
@@ -210,6 +234,13 @@ function SignIn({ sb }) {
     e.preventDefault();
     setBusy(true);
     setMessage(null);
+    if (mode === 'reset') {
+      const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/?reset=1` });
+      setBusy(false);
+      if (error) return setMessage({ kind: 'error', text: error.message });
+      setMessage({ kind: 'ok', text: 'If that email has an account, a reset link is on its way. Open it on this device and choose a new password.' });
+      return;
+    }
     const fn = mode === 'signin' ? sb.auth.signInWithPassword : sb.auth.signUp;
     const { data, error } = await fn.call(sb.auth, { email: email.trim(), password });
     setBusy(false);
@@ -231,29 +262,74 @@ function SignIn({ sb }) {
         </div>
       </div>
       <form className="auth-card" onSubmit={submit}>
-        <h1 className="h-page">{mode === 'signin' ? 'Sign in' : 'Create your vault'}</h1>
-        <p className="muted">Movies, series, anime and dramas from every country, tracked down to the episode.</p>
+        <h1 className="h-page">{mode === 'signin' ? 'Sign in' : mode === 'reset' ? 'Reset your password' : 'Create your vault'}</h1>
+        <p className="muted">{mode === 'reset' ? 'Enter your email and we’ll send you a link to choose a new password.' : 'Movies, series, anime and dramas from every country, tracked down to the episode.'}</p>
         <label className="field">
           <span>Email</span>
           <input id="email" className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
-        <label className="field">
-          <span>Password</span>
-          <input id="password" className="input" type="password" minLength={6} required autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} />
-        </label>
+        {mode !== 'reset' && (
+          <label className="field">
+            <span>Password</span>
+            <input id="password" className="input" type="password" minLength={6} required autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+        )}
+        {mode === 'signin' && (
+          <button type="button" className="as-text-link small" style={{ justifySelf: 'start' }} onClick={() => (setMode('reset'), setMessage(null))}>
+            Forgot your password?
+          </button>
+        )}
         {message && <div className={`notice ${message.kind}`}>{message.text}</div>}
         {message?.kind === 'error' && /path|fetch|network/i.test(message.text) && (
           <p className="hint">Database address in use: {supabaseUrl()}. It should look like https://xxxx.supabase.co with nothing after it.</p>
         )}
         <button className="btn primary full" disabled={busy}>
-          {busy ? 'One moment…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+          {busy ? 'One moment…' : mode === 'signin' ? 'Sign in' : mode === 'reset' ? 'Send reset link' : 'Create account'}
         </button>
-        <button type="button" className="btn ghost full" onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}>
-          {mode === 'signin' ? 'New here? Create an account' : 'Have an account? Sign in'}
+        <button type="button" className="btn ghost full" onClick={() => (setMode(mode === 'signin' ? 'signup' : 'signin'), setMessage(null))}>
+          {mode === 'signin' ? 'New here? Create an account' : 'Back to sign in'}
         </button>
       </form>
     </div>
   );
+}
+
+/** After the reset link: pick the new password, then carry on into the app. */
+export function NewPassword({ sb, onDone, inline = false }) {
+  const [pw, setPw] = useState('');
+  const [again, setAgain] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+  async function submit(e) {
+    e.preventDefault();
+    if (pw !== again) return setMessage({ kind: 'error', text: 'The two passwords don’t match.' });
+    setBusy(true);
+    const { error } = await sb.auth.updateUser({ password: pw });
+    setBusy(false);
+    if (error) return setMessage({ kind: 'error', text: error.message });
+    setPw('');
+    setAgain('');
+    setMessage({ kind: 'ok', text: 'Password changed.' });
+    onDone?.();
+  }
+  const form = (
+    <form className={inline ? 'stack' : 'auth-card'} onSubmit={submit}>
+      {!inline && <h1 className="h-page">Choose a new password</h1>}
+      <label className="field">
+        <span>New password</span>
+        <input id="new-password" className="input" type="password" minLength={6} required autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>Type it again</span>
+        <input id="new-password-2" className="input" type="password" minLength={6} required autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
+      </label>
+      {message && <div className={`notice ${message.kind}`}>{message.text}</div>}
+      <button className={`btn primary ${inline ? '' : 'full'}`} disabled={busy} style={inline ? { justifySelf: 'start' } : undefined}>
+        {busy ? 'Saving…' : 'Save new password'}
+      </button>
+    </form>
+  );
+  return inline ? form : <div className="auth single">{form}</div>;
 }
 
 function SetupNeeded() {

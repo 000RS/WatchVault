@@ -2,6 +2,42 @@
 
 A personal vault for everything you watch: movies, series, anime and dramas from every country, tracked down to the episode. Share it with friends like a profile.
 
+## What's new in 5.1
+
+No database changes: everything new is stored in the `meta` column added by `upgrade_v5.sql`.
+
+- **Dub or sub.** Anime tiles show a DUB / PART DUB / SUB badge, title sheets say whether an English dub exists, and search has a "Dub or sub" filter. You can also type it: "english dubbed anime", "sub only anime 2023". The dub data comes from the free, community-kept [MAL-Dubs](https://github.com/MAL-Dubs/MAL-Dubs) list (anime only; other titles show "not known").
+- **How you watched it.** Every film, series and anime has Original audio / Subtitled / Dubbed (with the dub language), and films have "Watched it in a cinema". There's a "Saw it in a cinema" quick-add button, a My Vault filter for all of these, and counts on Stats.
+- **Short dramas.** A new shelf for ReelShort, DramaBox, ShortMax, FlexTV and the rest, with the app name on the poster and in the editor. Search "short dramas" or "reelshort …", or add one yourself with its app and episode count.
+- **Export all or part of your list** as Excel, CSV, Word or PDF, from My Vault, Import & export, or Settings. Quick picks (anime, movies, English movies, Hindi series, watchlist, favourites…) or mix your own: types, shelves, statuses, language, country, years, rating. On My Vault, "What's on screen now" exports exactly what your filters show, or just the titles you selected. Made in your browser, so it costs nothing.
+- **Top lists** read better: the name sits to the right of the poster, jump chips take you to each list, and rows can be dragged up and down (the arrows still work).
+- **Auto refresh.** Your vault re-syncs when you come back to the tab, when you're back online and every two minutes, so changes from your phone show up on your laptop by themselves. Explore's picks refresh every day.
+
+## Upgrading to version 5
+
+Version 5 turns WatchVault into a vault for everything you love, not just what you watch. Still completely free.
+
+1. **Database (once):** Supabase → **SQL Editor** → **New query** → paste [`supabase/upgrade_v5.sql`](supabase/upgrade_v5.sql) → **Run**. (Run `upgrade_v4.sql` first if you haven't.)
+2. **Code:** merge the pull request on GitHub. Vercel redeploys by itself.
+3. **Optional extras, all free** (Vercel → Settings → Environment Variables, then redeploy):
+   - `IGDB_CLIENT_ID` and `IGDB_CLIENT_SECRET` for richer game data (make an app at dev.twitch.tv). Without them, games come from Steam.
+   - `TICKETMASTER_API_KEY` for live events near you (developer.ticketmaster.com). Without it, you add events by hand.
+
+### What's new in version 5
+
+- **Every shelf:** books (Open Library), manga, manhwa and comics (AniList), games (Steam or IGDB), music and podcasts (Apple's free search, with 30-second song previews), food and places (OpenStreetMap), events (Ticketmaster), travel, and **anything else** you add by hand. Each kind speaks its own language: Read, Playing, Been there, Want to go. My List is now **My Vault**, with every shelf, favourites, a map for places, and smart collections (Under 2 hours, Quick binge, Dark fantasy, Short reads, Unfinished business…).
+- **One search for everything:** films, books, games, music and cafés in one box. Type “fantasy books”, “punjabi songs” or “cafes in Ponsonby” and the right shelf opens. A Search button and filters are always visible.
+- **Swipe:** a full-screen feed of trailers and covers for films, series, anime, books, manga, games, music and podcasts. ♥ saves it, ✓ marks it done, ✕ teaches it your taste. Works with touch, mouse and keyboard.
+- **Group Swipe:** start a room, share the code, everyone swipes the same deck, and anything you all like is a match.
+- **Tonight:** pick a mood, time, budget and company and get a few strong picks across every shelf, your saved things first. Plus **Vault roulette** and the AI guide.
+- **Taste:** your Taste DNA (what you come for, not just what you watch), an opt-in way to find taste twins and opposites with a full breakdown of where you agree, friends' hidden gems, how your taste has changed, and a shareable **Taste passport** on your profile.
+- **Discover:** blind discovery (just the story, no title or rating, then reveal), a rabbit hole that wanders across shelves, and **Crossover** (“loved Attack on Titan, give me books, games and music with that feel”, uses the free AI guide).
+- **Screen trips:** a map of real filming locations from what you've watched. Save dream trips and tick off places you've been.
+- **Memories:** your life month by month across every shelf, “on this day”, and diary notes with who you were with.
+- **Together:** recommendation battles your friends vote on, friend challenges with live progress, shared vaults for any shelf, and Group Swipe.
+- **Home:** Tonight, Your vault (every shelf at a glance) and Rediscover (things you saved a while ago).
+- **Stats → Beyond the screen**, and a Wrapped slide for everything you did off-screen.
+
 ## Upgrading to version 4
 
 Your list stays exactly as it is. Everything here is free, with no card needed anywhere.
@@ -103,7 +139,7 @@ Your list is stored in Supabase, not in the code, so nothing you've added is los
 
 You need free accounts at **Supabase** (database), **TMDB** (title data) and **Vercel** (hosting).
 
-1. **Supabase:** create a project. In **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql), then `upgrade_v2.sql`, `upgrade_v3.sql` and `upgrade_v4.sql` in that order. Copy the Project URL and the anon public key from **Project Settings → API Keys**.
+1. **Supabase:** create a project. In **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql), then `upgrade_v2.sql`, `upgrade_v3.sql`, `upgrade_v4.sql` and `upgrade_v5.sql` in that order. Copy the Project URL and the anon public key from **Project Settings → API Keys**.
 2. **TMDB:** sign up, then **Settings → API**, and copy the **API Read Access Token**.
 3. **Vercel:** import the GitHub repo. Set **Root Directory** to the folder that has `package.json`, and add these environment variables:
 
@@ -133,4 +169,4 @@ npm run dev                  # http://localhost:3000
 - Database triggers record history and the diary automatically.
 - `public/sw.js` makes the site installable and fast offline; `app/api/cron/notify` (optional) sends new-episode notifications once a day.
 
-Title data and images come from [TMDB](https://www.themoviedb.org) and [AniList](https://anilist.co). This product uses the TMDB API but is not endorsed or certified by TMDB.
+Title data and images come from [TMDB](https://www.themoviedb.org), [AniList](https://anilist.co), [Open Library](https://openlibrary.org), Apple's iTunes Search, Steam or IGDB, [OpenStreetMap](https://www.openstreetmap.org) (via Photon), [Wikidata](https://www.wikidata.org) and Ticketmaster. This product uses the TMDB API but is not endorsed or certified by TMDB.

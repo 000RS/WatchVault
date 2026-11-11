@@ -16,7 +16,7 @@ export async function GET(request) {
   const year = Number(sp.get('year')) || null;
   const language = sp.get('language') || '';
   const country = (sp.get('country') || '').toUpperCase();
-  if (q.length < 2) return Response.json({ items: [], people: [] });
+  if (q.length < 1) return Response.json({ items: [], people: [] });
 
   const path = type === 'movie' ? 'search/movie' : type === 'tv' || type === 'anime' ? 'search/tv' : 'search/multi';
   const variants = [q, ...spellingVariants(q)];

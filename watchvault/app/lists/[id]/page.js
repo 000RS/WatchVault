@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { deleteList, getList, saveList, itemOf, sameItem } from '@/lib/social4';
 import { profilesByIds, displayName } from '@/lib/social';
-import { searchCatalog } from '@/lib/catalog';
+import { searchAnything as searchCatalog } from '@/lib/shelves';
 import { useAuth } from '@/components/AppShell';
 import { useEntries } from '@/lib/store';
 import Poster from '@/components/Poster';
+import { CATEGORY_SHORT } from '@/lib/categories';
 import { DetailSheet } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
@@ -40,7 +41,7 @@ export default function ListPage() {
 
   useEffect(() => {
     if (q.trim().length < 2) return setResults([]);
-    const t = setTimeout(() => searchCatalog(q.trim()).then((r) => setResults(r.slice(0, 8))).catch(() => setResults([])), 300);
+    const t = setTimeout(() => searchCatalog(q.trim()).then((r) => setResults(r.slice(0, 14))).catch(() => setResults([])), 300);
     return () => clearTimeout(t);
   }, [q]);
 
@@ -155,7 +156,7 @@ export default function ListPage() {
                   <Poster src={r.poster} title={r.title} size="sm" />
                   <span>
                     <b>{r.title}</b>
-                    <span className="muted small">{[r.year, r.mediaType === 'movie' ? 'Film' : 'Series'].filter(Boolean).join(' · ')}</span>
+                    <span className="muted small">{[r.year, CATEGORY_SHORT[r.category]].filter(Boolean).join(' · ')}</span>
                   </span>
                   <Icon.Plus width={16} height={16} />
                 </button>

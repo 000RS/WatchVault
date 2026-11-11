@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
 import { saveProfile, useEntries } from '@/lib/store';
 import { CATEGORIES } from '@/lib/categories';
-import { toCsv } from '@/lib/list';
+import ExportSheet from '@/components/ExportSheet';
+import { NewPassword } from '@/components/AppShell';
 import { HOME_SECTIONS, withDefaults } from '@/components/Vault';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
@@ -211,6 +212,14 @@ export default function SettingsPage() {
               Sign out
             </button>
           </div>
+          <details className="group-row" style={{ display: 'block' }}>
+            <summary style={{ cursor: 'pointer' }}>
+              <b>Change password</b>
+            </summary>
+            <div style={{ paddingTop: 12 }}>
+              <NewPassword sb={getSupabase()} inline />
+            </div>
+          </details>
         </div>
       </section>
 
@@ -238,14 +247,7 @@ export default function SettingsPage() {
 }
 
 function DataTools({ entries }) {
-  function downloadCsv() {
-    const blob = new Blob([toCsv(entries)], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `watchvault-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
+  const [exporting, setExporting] = useState(false);
 
   return (
     <section className="stack">
@@ -255,12 +257,13 @@ function DataTools({ entries }) {
       <div className="group">
         <div className="group-row">
           <div>
-            <b>Download your list</b>
-            <span className="muted small">A CSV file that opens in Excel or Google Sheets.</span>
+            <b>Export your list</b>
+            <span className="muted small">All of it or just a part (only anime, English movies, your watchlist…) as Excel, CSV, Word or PDF.</span>
           </div>
-          <button className="btn sm" onClick={downloadCsv}>
-            Download CSV
+          <button className="btn sm" onClick={() => setExporting(true)}>
+            Export
           </button>
+          {exporting && <ExportSheet open entries={entries} onClose={() => setExporting(false)} />}
         </div>
         <div className="group-row">
           <div>

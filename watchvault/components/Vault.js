@@ -7,7 +7,10 @@ import { computeStats, isWatched } from '@/lib/stats';
 import { entryHref } from '@/lib/actions';
 
 export const HOME_SECTIONS = [
+  { id: 'tonight', label: 'What should I do tonight?' },
   { id: 'upnext', label: 'Up next' },
+  { id: 'vault', label: 'Your vault: every shelf' },
+  { id: 'rediscover', label: 'Rediscover' },
   { id: 'goals', label: 'Goals & Wrapped' },
   { id: 'continue', label: 'Continue watching' },
   { id: 'tops', label: 'Top lists' },

@@ -3,14 +3,17 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useEntries, updateMany, removeEntries, restoreScroll, viewMemory } from '@/lib/store';
-import { CATEGORIES, STATUSES, languageName } from '@/lib/categories';
 import { COUNTRIES } from '@/components/SearchResults';
-import { progressFor, toCsv } from '@/lib/list';
+import { progressFor } from '@/lib/list';
+import ExportSheet from '@/components/ExportSheet';
+import { CATEGORIES, CATEGORY_LABEL, STATUSES, STATUS_LABEL, languageName, statusesFor } from '@/lib/categories';
 import { EntryTile } from '@/components/Tiles';
 import { Icon } from '@/components/Icons';
 import { toast } from '@/lib/toast';
 import LinkAnimeBanner from '@/components/LinkAnimeBanner';
 import TidyUp from '@/components/TidyUp';
+import dynamic from 'next/dynamic';
+const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 
 const SORTS = [
   { id: 'updated', label: 'Recently changed' },
@@ -27,6 +30,31 @@ const SORTS = [
   { id: 'rewatched', label: 'Most rewatched' },
 ];
 const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
+const has = (e, re) => (e.genres || []).some((g) => re.test(g));
+/** Collections that build themselves from what's in your vault. */
+const SMART = [
+  { id: 'short', label: 'Under 2 hours', test: (e) => e.media_type === 'movie' && e.status === 'plan' && e.runtime && e.runtime <= 120 },
+  { id: 'binge', label: 'Quick binge', test: (e) => ['tv', 'anime'].includes(e.media_type) && e.status === 'plan' && e.total_episodes && e.total_episodes <= 16 },
+  { id: 'darkfantasy', label: 'Dark fantasy', test: (e) => has(e, /fantasy|supernatural/i) && has(e, /horror|thriller|dark|mystery|psychological/i) },
+  { id: 'feelgood', label: 'Feel-good', test: (e) => has(e, /comedy|family|slice of life/i) && !has(e, /horror|crime|thriller/i) && e.status !== 'dropped' },
+  { id: 'shortreads', label: 'Short reads', test: (e) => e.media_type === 'book' && e.status === 'plan' && e.total_episodes && e.total_episodes <= 250 },
+  { id: 'weekendgames', label: 'Weekend games', test: (e) => e.media_type === 'game' && ['plan', 'on_hold', 'watching'].includes(e.status) },
+  { id: 'withfriends', label: 'Places to try with friends', test: (e) => e.media_type === 'place' && e.status === 'plan' },
+  { id: 'unfinished', label: 'Unfinished business', test: (e) => ['on_hold', 'stopped'].includes(e.status) },
+  { id: 'comfort', label: 'Comfort favourites', test: (e) => (e.rewatch_count || 0) > 0 || (e.favourite && e.status === 'completed') },
+  { id: 'dream', label: 'Dream trips', test: (e) => e.media_type === 'travel' && e.status === 'plan' },
+];
+/** "How you watched" filter: cinema, dub, sub, original, or a short-drama app. */
+function watchTest(e, w) {
+  const m = e.meta || {};
+  if (w === 'cinema') return Boolean(m.cinema);
+  if (w === 'dub' || w === 'sub' || w === 'original') return m.audio === w;
+  if (w.startsWith('dub:')) return m.audio === 'dub' && m.dubLang === w.slice(4);
+  if (w.startsWith('app:')) return m.app === w.slice(4);
+  return true;
+}
+const WATCH_LABEL = (k) => (k === 'cinema' ? '🍿 Seen in a cinema' : k === 'dub' ? 'Dubbed' : k === 'sub' ? 'Subtitled' : k === 'original' ? 'Original audio' : k.startsWith('dub:') ? `Dubbed in ${k.slice(4)}` : k.startsWith('app:') ? `On ${k.slice(4)}` : k);
+const NO_FX = { genre: '', language: '', country: '', decade: '', minRating: '', tag: '', watch: '' };
 const decadeOf = (y) => (y ? `${Math.floor(y / 10) * 10}s` : 'Unknown');
 
 const MEMORY_KEY = 'list';
@@ -38,16 +66,18 @@ export default function ListPage() {
   const [status, setStatus] = useState(remembered.status || 'all');
   const [sort, setSort] = useState(remembered.sort || 'updated');
   const [q, setQ] = useState(remembered.q || '');
-  const [fx, setFx] = useState(remembered.fx || { genre: '', language: '', country: '', decade: '', minRating: '', tag: '' });
+  const [fx, setFx] = useState({ ...NO_FX, ...(remembered.fx || {}) });
+  const [smart, setSmart] = useState(remembered.smart || '');
   const [moreOpen, setMoreOpen] = useState(Object.values(remembered.fx || {}).some(Boolean));
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Remember filters and scroll so coming back from a title lands you where you were.
   useEffect(() => {
-    viewMemory.set(MEMORY_KEY, { ...(viewMemory.get(MEMORY_KEY) || {}), category, status, sort, q, fx });
-  }, [category, status, sort, q, fx]);
+    viewMemory.set(MEMORY_KEY, { ...(viewMemory.get(MEMORY_KEY) || {}), category, status, sort, q, fx, smart });
+  }, [category, status, sort, q, fx, smart]);
   useEffect(() => {
     const save = () => document.querySelector('[data-mylist]') && viewMemory.set(MEMORY_KEY, { ...(viewMemory.get(MEMORY_KEY) || {}), scroll: window.scrollY });
     window.addEventListener('scroll', save, { passive: true });
@@ -71,7 +101,7 @@ export default function ListPage() {
 
   // Values present in your list, for the extra filters.
   const facets = useMemo(() => {
-    const g = new Map(), l = new Map(), c = new Map(), d = new Map(), t = new Map();
+    const g = new Map(), l = new Map(), c = new Map(), d = new Map(), t = new Map(), w = new Map();
     const inc = (m, k) => k && m.set(k, (m.get(k) || 0) + 1);
     for (const e of entries || []) {
       for (const x of e.genres || []) inc(g, x);
@@ -79,9 +109,14 @@ export default function ListPage() {
       inc(c, e.origin_country);
       inc(d, e.year ? decadeOf(e.year) : null);
       for (const x of e.tags || []) inc(t, x);
+      const m = e.meta || {};
+      if (m.cinema) inc(w, 'cinema');
+      if (m.audio) inc(w, m.audio);
+      if (m.audio === 'dub' && m.dubLang) inc(w, `dub:${m.dubLang}`);
+      if (m.app) inc(w, `app:${m.app}`);
     }
     const sorted = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
-    return { genres: sorted(g), languages: sorted(l), countries: sorted(c), decades: [...d.entries()].sort((a, b) => b[0].localeCompare(a[0])), tags: sorted(t) };
+    return { genres: sorted(g), languages: sorted(l), countries: sorted(c), decades: [...d.entries()].sort((a, b) => b[0].localeCompare(a[0])), tags: sorted(t), watch: sorted(w) };
   }, [entries]);
   const setFilter = (k) => (e) => setFx((x) => ({ ...x, [k]: e.target.value }));
   const activeFx = Object.values(fx).filter(Boolean).length;
@@ -91,14 +126,16 @@ export default function ListPage() {
     const list = (entries || []).filter(
       (e) =>
         (category === 'all' || e.category === category) &&
-        (status === 'all' || e.status === status) &&
+        (status === 'all' || (status === 'fav' ? e.favourite : e.status === status)) &&
         (!needle || e.title.toLowerCase().includes(needle) || (e.original_title || '').toLowerCase().includes(needle) || (e.tags || []).some((t) => t.includes(needle))) &&
         (!fx.genre || (e.genres || []).includes(fx.genre)) &&
         (!fx.language || e.original_language === fx.language) &&
         (!fx.country || e.origin_country === fx.country) &&
         (!fx.decade || decadeOf(e.year) === fx.decade) &&
         (!fx.minRating || (e.rating ?? 0) >= Number(fx.minRating)) &&
-        (!fx.tag || (e.tags || []).includes(fx.tag))
+        (!fx.tag || (e.tags || []).includes(fx.tag)) &&
+        (!fx.watch || watchTest(e, fx.watch)) &&
+        (!smart || SMART.find((x) => x.id === smart)?.test(e))
     );
     const by = {
       updated: (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
@@ -114,7 +151,7 @@ export default function ListPage() {
     // Grouped sorts order by rating inside each group.
     const inner = (a, b) => (b.rating ?? -1) - (a.rating ?? -1) || (b.popularity ?? 0) - (a.popularity ?? 0);
     return list.sort(by[sort] || inner);
-  }, [entries, category, status, sort, q, fx]);
+  }, [entries, category, status, sort, q, fx, smart]);
 
   // Grouped views: a title with several genres shows under each, like a streaming app.
   const groups = useMemo(() => {
@@ -158,14 +195,13 @@ export default function ListPage() {
     }
   }
 
-  function downloadCsv() {
-    const blob = new Blob([toCsv(entries || [])], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `watchvault-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
+  const screenLabel = [
+    fx.language ? languageName(fx.language) : null,
+    category !== 'all' ? CATEGORY_LABEL[category] : null,
+    status === 'fav' ? 'favourites' : status !== 'all' ? STATUS_LABEL[status]?.toLowerCase() : null,
+    smart ? SMART.find((x) => x.id === smart)?.label : null,
+    q.trim() ? `“${q.trim()}”` : null,
+  ].filter(Boolean).join(', ') || 'My Vault';
 
   if (error && !entries) return <p className="notice error">{error}</p>;
   if (loading)
@@ -181,7 +217,7 @@ export default function ListPage() {
     return (
       <div className="empty">
         <h1 className="h-page">Nothing here yet</h1>
-        <p className="lede">Import a list you already keep, or tick titles off in Explore.</p>
+        <p className="lede">Films, series, anime, books, games, music, places: import a list you already keep, or add things from Explore and Swipe.</p>
         <div className="row">
           <Link href="/import" className="btn primary">
             Import a list
@@ -194,12 +230,15 @@ export default function ListPage() {
     );
 
   const used = CATEGORIES.filter((c) => counts.byCat[c.id]);
+  const smartCounts = SMART.map((x) => ({ ...x, n: entries.filter(x.test).length })).filter((x) => x.n >= 2);
+  const sampleOf = (entries || []).find((e) => e.category === category);
+  const shelfStatuses = category !== 'all' && sampleOf ? statusesFor(sampleOf) : STATUSES;
 
   return (
     <>
       <header className="page-head">
         <div className="head-text">
-          <h1 className="h-page">My List</h1>
+          <h1 className="h-page">My Vault</h1>
           <p className="muted">
             {entries.length.toLocaleString()} titles{refreshing ? ', syncing…' : ''}
           </p>
@@ -209,8 +248,8 @@ export default function ListPage() {
             <Icon.Select width={16} height={16} />
             {selecting ? 'Done' : 'Select'}
           </button>
-          <button className="btn sm" onClick={downloadCsv}>
-            <Icon.Download width={16} height={16} /> CSV
+          <button className="btn sm" onClick={() => setExporting(true)}>
+            <Icon.Download width={16} height={16} /> Export
           </button>
         </div>
       </header>
@@ -229,11 +268,24 @@ export default function ListPage() {
             </button>
           ))}
         </div>
+        {smartCounts.length > 0 && (
+          <div className="chips" aria-label="Smart collections">
+            <span className="muted small chips-label">Collections</span>
+            {smartCounts.map((x) => (
+              <button key={x.id} className={`chip ${smart === x.id ? 'on' : ''}`} onClick={() => setSmart(smart === x.id ? '' : x.id)}>
+                ✦ {x.label} <span className="count">{x.n}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="chips" aria-label="Status">
           <button className={`chip ${status === 'all' ? 'on' : ''}`} onClick={() => setStatus('all')}>
             Any status
           </button>
-          {STATUSES.map((s) => (
+          <button className={`chip ${status === 'fav' ? 'on' : ''}`} onClick={() => setStatus('fav')}>
+            ♥ Favourites <span className="count">{(entries || []).filter((e) => e.favourite && (category === 'all' || e.category === category)).length}</span>
+          </button>
+          {shelfStatuses.map((s) => (
             <button key={s.id} className={`chip ${status === s.id ? 'on' : ''}`} onClick={() => setStatus(s.id)}>
               <span className={`dot st-${s.id}`} />
               {s.label} <span className="count">{counts.byStatus[s.id] || 0}</span>
@@ -306,8 +358,18 @@ export default function ListPage() {
                 ))}
               </select>
             )}
+            {facets.watch.length > 0 && (
+              <select id="lf-watch" className="select" value={fx.watch} onChange={setFilter('watch')} aria-label="How you watched">
+                <option value="">Any way of watching</option>
+                {facets.watch.map(([k, n]) => (
+                  <option key={k} value={k}>
+                    {WATCH_LABEL(k)} ({n})
+                  </option>
+                ))}
+              </select>
+            )}
             {activeFx > 0 && (
-              <button className="btn sm ghost" onClick={() => setFx({ genre: '', language: '', country: '', decade: '', minRating: '', tag: '' })}>
+              <button className="btn sm ghost" onClick={() => setFx(NO_FX)}>
                 Clear
               </button>
             )}
@@ -315,6 +377,9 @@ export default function ListPage() {
         )}
       </div>
 
+      {['food', 'places', 'travel', 'events'].includes(category) && shown.some((e) => e.meta?.lat != null) && (
+        <MapView height={320} points={shown.filter((e) => e.meta?.lat != null).map((e) => ({ key: e.id, lat: e.meta.lat, lon: e.meta.lon, label: e.title, sub: e.meta.by || '', done: e.status === 'completed' }))} />
+      )}
       {shown.length === 0 ? (
         <p className="muted">Nothing matches these filters.</p>
       ) : groups ? (
@@ -331,6 +396,7 @@ export default function ListPage() {
         </div>
       )}
 
+      {exporting && <ExportSheet open entries={entries} current={{ list: selecting && selected.size ? shown.filter((e) => selected.has(e.id)) : shown, label: selecting && selected.size ? `${selected.size} picked titles` : screenLabel }} onClose={() => setExporting(false)} />}
       {selecting && (
         <div className="bulkbar" role="toolbar" aria-label="Change selected titles">
           <span className="num">{selected.size} selected</span>
@@ -366,6 +432,9 @@ export default function ListPage() {
                   </option>
                 ))}
               </select>
+              <button className="btn sm" onClick={() => setExporting(true)}>
+                Export
+              </button>
               <button
                 className="btn sm"
                 onClick={() => {

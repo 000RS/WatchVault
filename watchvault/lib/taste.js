@@ -1,6 +1,6 @@
 // What someone likes, worked out from their list: favourite genres, languages and titles.
 
-import { STARTED, genreIdsFor } from './categories';
+import { STARTED, genreIdsFor, isScreen } from './categories';
 
 const weight = (e) => {
   let w = e.status === 'completed' ? 3 : e.status === 'watching' ? 2.5 : e.status === 'stopped' || e.status === 'on_hold' ? 1.5 : e.status === 'tried' ? 0.5 : e.status === 'dropped' ? -1 : 0;
@@ -9,7 +9,7 @@ const weight = (e) => {
 };
 
 export function tasteProfile(entries = [], hidden = new Set()) {
-  const pool = entries.filter((e) => STARTED.has(e.status) && !hidden.has(e.category));
+  const pool = entries.filter((e) => isScreen(e) && STARTED.has(e.status) && !hidden.has(e.category));
   const genre = {};
   const lang = {};
   const media = { movie: 0, tv: 0 };

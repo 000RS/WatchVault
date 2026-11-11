@@ -79,7 +79,12 @@ async function doRefresh() {
   state.refreshing = true;
   emit();
   try {
-    state.entries = await fetchList();
+    const fresh = await fetchList();
+    // Keep any change still waiting to save, so a background sync never undoes a tap.
+    if (pending.size) {
+      const local = new Map((state.entries || []).map((e) => [e.id, e]));
+      state.entries = fresh.map((e) => (pending.has(e.id) && local.get(e.id) ? local.get(e.id) : e));
+    } else state.entries = fresh;
     state.error = null;
     persist();
   } catch (e) {
@@ -318,4 +323,25 @@ export function restoreScroll(y) {
     window.removeEventListener('wheel', stop);
     window.removeEventListener('touchstart', stop);
   };
+}
+
+/* ---------------- Auto sync ----------------
+   Changes made on another device show up here by themselves: when you come back to the tab,
+   when the connection returns, and every couple of minutes while the page is open. */
+let autoSyncOn = false;
+export function startAutoSync() {
+  if (autoSyncOn || typeof window === 'undefined') return;
+  autoSyncOn = true;
+  let last = Date.now();
+  const sync = (force) => {
+    if (!state.userId || document.visibilityState !== 'visible') return;
+    if (!force && Date.now() - last < 20000) return;
+    last = Date.now();
+    refresh();
+    loadProfile();
+  };
+  document.addEventListener('visibilitychange', () => sync(false));
+  window.addEventListener('focus', () => sync(false));
+  window.addEventListener('online', () => sync(true));
+  setInterval(() => sync(true), 120000);
 }
